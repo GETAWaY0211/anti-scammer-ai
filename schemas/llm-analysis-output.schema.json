@@ -1,0 +1,197 @@
+{
+  "$id": "urn:anti-scammer-ai:schema:llm-analysis-output:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Anti-Scammer AI LLM Analysis Output",
+  "description": "Validates evidence-grounded structured output produced by a language model before n8n accepts it and passes it to deterministic scoring. A category describes an overall scam pattern, while an indicator describes observable evidence in the submitted input. This schema uses scam taxonomy version 1.0.0. It intentionally excludes scores, risk levels, version fields, operational metadata, provider details, hidden reasoning, and other values owned by the backend.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "scam_categories",
+    "indicators",
+    "recommended_actions",
+    "confidence"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "\\S",
+      "description": "A concise, plain-language, evidence-grounded assessment of the submitted content. It must assess the content or situation and must not state that a person is definitely a scammer."
+    },
+    "scam_categories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 14,
+      "uniqueItems": true,
+      "description": "One or more overall scam-pattern category codes from taxonomy version 1.0.0. The application treats the first item as the primary category and any later items as secondary categories. Categories summarize patterns and must not directly determine the risk score.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "bank_impersonation",
+          "government_impersonation",
+          "account_takeover",
+          "investment_scam",
+          "romance_scam",
+          "shopping_scam",
+          "parcel_delivery_scam",
+          "job_scam",
+          "loan_scam",
+          "tech_support_scam",
+          "prize_lottery_scam",
+          "extortion_scam",
+          "unclear",
+          "other"
+        ]
+      }
+    },
+    "indicators": {
+      "type": "array",
+      "maxItems": 48,
+      "uniqueItems": true,
+      "description": "Observable, evidence-grounded scam, quality, uncertainty, or security indicators. The array may be empty. JSON Schema uniqueItems prevents only fully identical objects; n8n must additionally enforce uniqueness by indicator code so the same code is emitted at most once per analysis. n8n must also apply taxonomy specificity and overlap validation before deterministic scoring.",
+      "items": {
+        "$ref": "#/$defs/indicator"
+      }
+    },
+    "recommended_actions": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "description": "Safe, practical, concise actions appropriate to the evidence. The array may be empty when no action is needed.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "pattern": "\\S"
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in the quality and reliability of this analysis, from 0.0 to 1.0. It is not the probability that a person is definitely a scammer and must not be presented as a judgment about a person."
+    },
+    "risk_score": false,
+    "risk_level": false,
+    "api_version": false,
+    "taxonomy_version": false,
+    "scoring_version": false,
+    "analysis_id": false,
+    "timestamp": false,
+    "needs_human_review": false,
+    "processing_time_ms": false,
+    "provider": false,
+    "model": false,
+    "chain_of_thought": false,
+    "reasoning": false,
+    "raw_analysis": false
+  },
+  "$defs": {
+    "indicator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "title",
+        "severity",
+        "evidence",
+        "explanation"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "An observable indicator code from scam taxonomy version 1.0.0. This allowlist includes score-bearing scam indicators, confidence-only quality and uncertainty indicators, and the security-only prompt-injection indicator. The backend derives scoring behavior from the taxonomy; the model must not supply it.",
+          "enum": [
+            "OTP_REQUEST",
+            "PASSWORD_REQUEST",
+            "CREDENTIAL_REQUEST",
+            "CARD_DATA_REQUEST",
+            "IDENTITY_DATA_REQUEST",
+            "VERIFICATION_CODE_FORWARDING",
+            "PAYMENT_REQUEST",
+            "URGENT_PAYMENT",
+            "ADVANCE_FEE_REQUEST",
+            "UNUSUAL_PAYMENT_METHOD",
+            "MONEY_MULE_REQUEST",
+            "REFUND_OVERPAYMENT",
+            "URGENCY_PRESSURE",
+            "THREAT_OR_INTIMIDATION",
+            "SECRECY_REQUEST",
+            "ISOLATION_FROM_TRUSTED_CONTACTS",
+            "EMOTIONAL_MANIPULATION",
+            "SCARCITY_PRESSURE",
+            "BANK_IMPERSONATION",
+            "GOVERNMENT_IMPERSONATION",
+            "COMPANY_IMPERSONATION",
+            "EXECUTIVE_IMPERSONATION",
+            "KNOWN_CONTACT_IMPERSONATION",
+            "FAKE_AUTHORITY_CLAIM",
+            "SUSPICIOUS_LINK",
+            "URL_SHORTENER",
+            "APK_INSTALL_REQUEST",
+            "REMOTE_ACCESS_REQUEST",
+            "SCREEN_SHARE_REQUEST",
+            "DISABLE_SECURITY_REQUEST",
+            "MOVE_OFF_PLATFORM",
+            "GUARANTEED_RETURN",
+            "UNREALISTIC_RETURN",
+            "PAY_TO_UNLOCK_EARNINGS",
+            "TASK_RECHARGE_REQUEST",
+            "FAKE_JOB_FEE",
+            "PRESSURE_TO_RECRUIT",
+            "FAKE_DELIVERY_FEE",
+            "OFF_PLATFORM_PAYMENT",
+            "PRIZE_FEE_REQUEST",
+            "UNSOLICITED_PRIZE",
+            "FAKE_ESCROW_OR_MIDDLEMAN",
+            "INSUFFICIENT_CONTEXT",
+            "LOW_IMAGE_QUALITY",
+            "LOW_AUDIO_QUALITY",
+            "CONFLICTING_EVIDENCE",
+            "UNVERIFIABLE_CLAIM",
+            "POSSIBLE_PROMPT_INJECTION"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "\\S",
+          "description": "A concise human-readable display name for the indicator."
+        },
+        "severity": {
+          "type": "string",
+          "description": "The indicator severity defined by the supported taxonomy. Severity is not a risk weight or score.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "description": "A minimal excerpt or faithful description of content actually present in the submitted input, or evidence from trusted system metadata. Interpretations belong in explanation. Evidence must be redacted and minimized: it must not contain passwords, OTP values, API keys, access tokens, or full bank account numbers. Because these requirements are semantic and context-dependent, n8n must verify grounding and sensitive-data redaction before accepting the output."
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "description": "A concise explanation of why the cited evidence supports this indicator. It must not contain chain-of-thought, hidden reasoning, system prompts, or unsupported claims."
+        },
+        "scoring_behavior": false,
+        "risk_weight": false,
+        "score": false,
+        "chain_of_thought": false,
+        "reasoning": false,
+        "raw_analysis": false
+      }
+    }
+  }
+}
