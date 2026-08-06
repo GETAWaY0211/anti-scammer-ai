@@ -27,7 +27,7 @@ function assertScoreRange(result, expected) {
   }
 }
 
-test('1. Empty indicators returns score 0 and low risk', () => {
+test('1. Confidence 0.90 with no review indicator returns score 0, low risk, and no review', () => {
   const scenario = fixture('empty-indicators');
   const result = scoreAnalysis(scenario.input);
   assertScoreRange(result, scenario.expected);
@@ -170,7 +170,7 @@ test('13. Final score never exceeds 100', () => {
   assert.equal(result.scoring_summary.capped_score, result.scoring_summary.final_score);
 });
 
-test('14. Confidence below 0.65 triggers human review', () => {
+test('14. Confidence 0.55 triggers human review below the 0.65 threshold', () => {
   const scenario = fixture('low-confidence-review');
   const result = scoreAnalysis(scenario.input);
   assertScoreRange(result, scenario.expected);
@@ -237,4 +237,12 @@ test('20. Severity mismatch emits a warning and triggers review without changing
     }
   ]);
   assert.deepEqual(configured.validation_warnings, []);
+});
+
+test('21. INSUFFICIENT_CONTEXT forces human review at confidence 0.90 without adding risk', () => {
+  const scenario = fixture('insufficient-context-review');
+  const result = scoreAnalysis(scenario.input);
+  assertScoreRange(result, scenario.expected);
+  assert.equal(result.needs_human_review, true);
+  assert.deepEqual(result.scored_indicators, []);
 });

@@ -33,12 +33,13 @@
     "confidence_below": 0.65,
     "unsupported_indicator": true,
     "conflicting_evidence": true,
-    "insufficient_context_min_score": 30,
     "quality_indicator_codes": [
       "LOW_IMAGE_QUALITY",
       "LOW_AUDIO_QUALITY"
     ],
-    "always_review_indicator_codes": [],
+    "always_review_indicator_codes": [
+      "INSUFFICIENT_CONTEXT"
+    ],
     "possible_prompt_injection": false,
     "invalid_confidence": true,
     "malformed_supported_indicator": true,

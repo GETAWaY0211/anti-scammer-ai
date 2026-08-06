@@ -332,9 +332,6 @@ function validateScoringConfig(config, taxonomy) {
     if (typeof review.confidence_below !== 'number' || !Number.isFinite(review.confidence_below) || review.confidence_below < 0 || review.confidence_below > 1) {
       addError('human_review.confidence_below must be a number from 0 to 1.');
     }
-    if (!isNonNegativeInteger(review.insufficient_context_min_score)) {
-      addError('human_review.insufficient_context_min_score must be a non-negative integer.');
-    }
     for (const field of ['unsupported_indicator', 'conflicting_evidence', 'possible_prompt_injection', 'invalid_confidence']) {
       if (typeof review[field] !== 'boolean') {
         addError(`human_review.${field} must be a boolean.`);

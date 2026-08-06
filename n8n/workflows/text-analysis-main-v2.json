@@ -13,22 +13,22 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -1260,
-        0
+        -1600,
+        -40
       ],
       "webhookId": "8ac4c97a-71b9-41df-951e-7967729bfc68"
     },
     {
       "parameters": {
-        "jsCode": "const incoming = $input.first().json;\nconst acceptedEpochMs = Date.now();\nconst acceptedAt = new Date(acceptedEpochMs).toISOString();\nconst MAX_TEXT_LENGTH = 10000;\nconst MAX_METADATA_LENGTH = 10000;\nconst allowedFields = new Set(['input_type', 'content', 'request_id', 'language', 'metadata']);\nconst isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.prototype.toString.call(value) === '[object Object]';\nconst body = isPlainObject(incoming && incoming.body) ? incoming.body : incoming;\nconst safeRequestId = isPlainObject(body) && typeof body.request_id === 'string' && body.request_id.trim() && body.request_id.length <= 128 ? body.request_id : null;\nconst fail = (code, message, details, statusCode = 400) => [{ json: { ok: false, status_code: statusCode, public_response: { error: { code, message, details }, request_id: safeRequestId, timestamp: new Date().toISOString() } } }];\nconst sensitiveKey = /(password|passwd|pwd|otp|one.?time|api.?key|access.?token|auth.?token|bank.?account|account.?number|เลขบัญชี)/i;\nconst sensitiveValue = /(password|passwd|otp|one[-_\\s]?time|api[-_\\s]?key|access[-_\\s]?token)\\s*[:=]\\s*\\S+|(bank[-_\\s]?account|account[-_\\s]?number|เลขบัญชี)\\s*[:=]\\s*[0-9 -]{8,}/i;\nfunction containsSensitive(value, key = '') {\n  if (sensitiveKey.test(key)) return true;\n  if (typeof value === 'string') return sensitiveValue.test(value);\n  if (Array.isArray(value)) return value.some((entry) => containsSensitive(entry));\n  if (isPlainObject(value)) return Object.entries(value).some(([childKey, childValue]) => containsSensitive(childValue, childKey));\n  return false;\n}\ntry {\n  if (!isPlainObject(body)) return fail('VALIDATION_ERROR', 'The request body must be a JSON object.', [{ field: 'body', issue: 'Must be a JSON object.' }]);\n  const unknown = Object.keys(body).filter((field) => !allowedFields.has(field));\n  if (unknown.length) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', unknown.map((field) => ({ field, issue: 'Unknown top-level field.' })));\n  if (body.input_type !== 'text') return fail('UNSUPPORTED_INPUT_TYPE', 'Only text input is supported by this workflow.', [{ field: 'input_type', issue: 'Must equal text.' }]);\n  if (typeof body.content !== 'string' || !body.content.trim()) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'content', issue: 'Must be a non-empty string.' }]);\n  if (body.content.length > MAX_TEXT_LENGTH) return fail('CONTENT_TOO_LARGE', 'The submitted text exceeds the configured maximum length.', [{ field: 'content', issue: `Must not exceed ${MAX_TEXT_LENGTH} characters.` }], 413);\n  if (body.request_id !== undefined && (typeof body.request_id !== 'string' || !body.request_id.trim() || body.request_id.length > 128)) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'request_id', issue: 'Must be a non-empty string no longer than 128 characters.' }]);\n  if (body.language !== undefined && (typeof body.language !== 'string' || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(body.language))) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'language', issue: 'Must be a valid BCP 47 language tag.' }]);\n  if (body.metadata !== undefined && !isPlainObject(body.metadata)) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'metadata', issue: 'Must be a plain JSON object.' }]);\n  const metadata = body.metadata || {};\n  if (JSON.stringify(metadata).length > MAX_METADATA_LENGTH) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'metadata', issue: `Must not exceed ${MAX_METADATA_LENGTH} serialized characters.` }]);\n  if (containsSensitive(metadata)) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'metadata', issue: 'Must not contain passwords, OTPs, API keys, access tokens, or full bank-account data.' }]);\n  return [{ json: { ok: true, accepted_epoch_ms: acceptedEpochMs, accepted_at: acceptedAt, request: { request_id: body.request_id || null, input_type: body.input_type, content: body.content.trim(), language: body.language || null, metadata } } }];\n} catch (error) {\n  return [{ json: { ok: false, status_code: 500, public_response: { error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.' }, request_id: safeRequestId, timestamp: new Date().toISOString() } } }];\n}"
+        "jsCode": "const incoming = $input.first().json;\nconst acceptedEpochMs = Date.now();\nconst acceptedAt = new Date(acceptedEpochMs).toISOString();\nconst MAX_TEXT_LENGTH = 10000;\nconst MAX_METADATA_LENGTH = 10000;\nconst MAX_IMAGE_BYTES = 5 * 1024 * 1024;\nconst MAX_BASE64_LENGTH = Math.ceil(MAX_IMAGE_BYTES / 3) * 4;\nconst supportedImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);\nconst allowedFields = new Set(['input_type', 'content', 'request_id', 'language', 'metadata']);\nconst allowedImageFields = new Set(['mime_type', 'data']);\nconst isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.prototype.toString.call(value) === '[object Object]';\nconst body = isPlainObject(incoming && incoming.body) ? incoming.body : incoming;\nconst safeRequestId = isPlainObject(body) && typeof body.request_id === 'string' && body.request_id.trim() && body.request_id.length <= 128 ? body.request_id : null;\nconst fail = (code, message, details, statusCode = 400) => [{ json: { ok: false, status_code: statusCode, public_response: { error: { code, message, details }, request_id: safeRequestId, timestamp: new Date().toISOString() } } }];\nconst sensitiveKey = /(password|passwd|pwd|otp|one.?time|api.?key|access.?token|auth.?token|bank.?account|account.?number|เลขบัญชี)/i;\nconst sensitiveValue = /(password|passwd|otp|one[-_\\s]?time|api[-_\\s]?key|access[-_\\s]?token)\\s*[:=]\\s*\\S+|(bank[-_\\s]?account|account[-_\\s]?number|เลขบัญชี)\\s*[:=]\\s*[0-9 -]{8,}/i;\nfunction containsSensitive(value, key = '') {\n  if (sensitiveKey.test(key)) return true;\n  if (typeof value === 'string') return sensitiveValue.test(value);\n  if (Array.isArray(value)) return value.some((entry) => containsSensitive(entry));\n  if (isPlainObject(value)) return Object.entries(value).some(([childKey, childValue]) => containsSensitive(childValue, childKey));\n  return false;\n}\nfunction hasSignature(bytes, mimeType) {\n  if (mimeType === 'image/png') {\n    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];\n    return bytes.length >= signature.length && signature.every((value, index) => bytes[index] === value);\n  }\n  if (mimeType === 'image/jpeg') return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;\n  if (mimeType === 'image/webp') {\n    return bytes.length >= 12 &&\n      bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&\n      bytes.subarray(8, 12).toString('ascii') === 'WEBP';\n  }\n  return false;\n}\ntry {\n  if (!isPlainObject(body)) return fail('VALIDATION_ERROR', 'The request body must be a JSON object.', [{ field: 'body', issue: 'Must be a JSON object.' }]);\n  const unknown = Object.keys(body).filter((field) => !allowedFields.has(field));\n  if (unknown.length) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', unknown.map((field) => ({ field, issue: 'Unknown top-level field.' })));\n  if (body.input_type !== 'text' && body.input_type !== 'image') return fail('UNSUPPORTED_INPUT_TYPE', 'Only text and image input are supported by this workflow.', [{ field: 'input_type', issue: 'Must equal text or image.' }]);\n  if (body.request_id !== undefined && (typeof body.request_id !== 'string' || !body.request_id.trim() || body.request_id.length > 128)) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'request_id', issue: 'Must be a non-empty string no longer than 128 characters.' }]);\n  if (body.language !== undefined && (typeof body.language !== 'string' || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(body.language))) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'language', issue: 'Must be a valid BCP 47 language tag.' }]);\n  if (body.metadata !== undefined && !isPlainObject(body.metadata)) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'metadata', issue: 'Must be a plain JSON object.' }]);\n  const metadata = body.metadata || {};\n  if (JSON.stringify(metadata).length > MAX_METADATA_LENGTH) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'metadata', issue: `Must not exceed ${MAX_METADATA_LENGTH} serialized characters.` }]);\n  if (containsSensitive(metadata)) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'metadata', issue: 'Must not contain passwords, OTPs, API keys, access tokens, or full bank-account data.' }]);\n\n  if (body.input_type === 'text') {\n    if (typeof body.content !== 'string' || !body.content.trim()) return fail('VALIDATION_ERROR', 'The request contains invalid fields.', [{ field: 'content', issue: 'Must be a non-empty string.' }]);\n    if (body.content.length > MAX_TEXT_LENGTH) return fail('CONTENT_TOO_LARGE', 'The submitted text exceeds the configured maximum length.', [{ field: 'content', issue: `Must not exceed ${MAX_TEXT_LENGTH} characters.` }], 413);\n    return [{ json: { ok: true, accepted_epoch_ms: acceptedEpochMs, accepted_at: acceptedAt, request: { request_id: body.request_id || null, input_type: 'text', content: body.content.trim(), language: body.language || null, metadata } } }];\n  }\n\n  if (!isPlainObject(body.content)) return fail('VALIDATION_ERROR', 'The request contains invalid image content.', [{ field: 'content', issue: 'Must be an object containing exactly mime_type and data.' }]);\n  const unknownImageFields = Object.keys(body.content).filter((field) => !allowedImageFields.has(field));\n  if (unknownImageFields.length) return fail('VALIDATION_ERROR', 'The request contains invalid image content.', unknownImageFields.map((field) => ({ field: `content.${field}`, issue: 'Unknown image-content field.' })));\n  for (const field of allowedImageFields) {\n    if (!Object.prototype.hasOwnProperty.call(body.content, field)) return fail('VALIDATION_ERROR', 'The request contains invalid image content.', [{ field: `content.${field}`, issue: 'Required field is missing.' }]);\n  }\n  if (typeof body.content.mime_type !== 'string' || !supportedImageTypes.has(body.content.mime_type)) return fail('VALIDATION_ERROR', 'The submitted image type is not supported.', [{ field: 'content.mime_type', issue: 'Must be image/png, image/jpeg, or image/webp.' }]);\n  const base64Data = body.content.data;\n  if (typeof base64Data !== 'string' || !base64Data.length) return fail('VALIDATION_ERROR', 'The request contains invalid image content.', [{ field: 'content.data', issue: 'Must be a non-empty Base64 string.' }]);\n  if (/^data:/i.test(base64Data)) return fail('VALIDATION_ERROR', 'The request contains invalid image content.', [{ field: 'content.data', issue: 'Data URI prefixes are not allowed; submit Base64 data only.' }]);\n  if (base64Data.length > MAX_BASE64_LENGTH) return fail('CONTENT_TOO_LARGE', 'The submitted image exceeds the configured maximum size.', [{ field: 'content.data', issue: `Encoded image must not exceed ${MAX_BASE64_LENGTH} characters.` }], 413);\n  if (base64Data.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64Data)) return fail('VALIDATION_ERROR', 'The request contains malformed Base64 image data.', [{ field: 'content.data', issue: 'Must be canonical Base64 data without whitespace or a data URI prefix.' }]);\n  let decoded;\n  try { decoded = Buffer.from(base64Data, 'base64'); } catch { return fail('VALIDATION_ERROR', 'The request contains malformed Base64 image data.', [{ field: 'content.data', issue: 'Base64 decoding failed.' }]); }\n  if (!decoded.length || decoded.toString('base64') !== base64Data) return fail('VALIDATION_ERROR', 'The request contains malformed Base64 image data.', [{ field: 'content.data', issue: 'Base64 data is empty or non-canonical.' }]);\n  if (decoded.length > MAX_IMAGE_BYTES) return fail('CONTENT_TOO_LARGE', 'The submitted image exceeds the configured maximum size.', [{ field: 'content.data', issue: `Decoded image must not exceed ${MAX_IMAGE_BYTES} bytes.` }], 413);\n  if (!hasSignature(decoded, body.content.mime_type)) return fail('VALIDATION_ERROR', 'The image MIME type does not match its file signature.', [{ field: 'content.mime_type', issue: 'Declared MIME type does not match the validated image signature.' }]);\n\n  return [{ json: {\n    ok: true,\n    accepted_epoch_ms: acceptedEpochMs,\n    accepted_at: acceptedAt,\n    request: {\n      request_id: body.request_id || null,\n      input_type: 'image',\n      content: { mime_type: body.content.mime_type, data: base64Data },\n      language: body.language || null,\n      metadata\n    },\n    image_validation: { mime_type: body.content.mime_type, decoded_size_bytes: decoded.length }\n  } }];\n} catch {\n  return [{ json: { ok: false, status_code: 500, public_response: { error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] }, request_id: safeRequestId, timestamp: new Date().toISOString() } } }];\n}"
       },
       "id": "a76b875c-9461-4a65-9642-01a77e85a7c9",
       "name": "Validate Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1040,
-        0
+        -1380,
+        -40
       ]
     },
     {
@@ -61,8 +61,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -820,
-        0
+        -1160,
+        -40
       ]
     },
     {
@@ -74,8 +74,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -600,
-        -100
+        -720,
+        -200
       ]
     },
     {
@@ -108,8 +108,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -380,
-        -100
+        -500,
+        -200
       ]
     },
     {
@@ -121,8 +121,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        500,
-        -260
+        1040,
+        -300
       ]
     },
     {
@@ -155,21 +155,21 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        720,
-        -260
+        1260,
+        -300
       ]
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\nconst context = data.context;\nconst input = data.analysis_output;\nconst weights = { OTP_REQUEST:[60,'credential_access','critical'],PASSWORD_REQUEST:[60,'credential_access','critical'],CREDENTIAL_REQUEST:[42,'credential_access','critical'],CARD_DATA_REQUEST:[60,'credential_access','critical'],IDENTITY_DATA_REQUEST:[18,'credential_access','high'],VERIFICATION_CODE_FORWARDING:[60,'credential_access','critical'],PAYMENT_REQUEST:[10,'financial_request','medium'],URGENT_PAYMENT:[14,'financial_request','high'],ADVANCE_FEE_REQUEST:[26,'financial_request','high'],UNUSUAL_PAYMENT_METHOD:[18,'financial_request','high'],MONEY_MULE_REQUEST:[60,'financial_request','critical'],REFUND_OVERPAYMENT:[28,'financial_request','high'],URGENCY_PRESSURE:[8,'pressure_manipulation','high'],THREAT_OR_INTIMIDATION:[28,'pressure_manipulation','critical'],SECRECY_REQUEST:[10,'pressure_manipulation','high'],ISOLATION_FROM_TRUSTED_CONTACTS:[14,'pressure_manipulation','high'],EMOTIONAL_MANIPULATION:[8,'pressure_manipulation','medium'],SCARCITY_PRESSURE:[7,'pressure_manipulation','medium'],BANK_IMPERSONATION:[18,'impersonation','high'],GOVERNMENT_IMPERSONATION:[20,'impersonation','high'],COMPANY_IMPERSONATION:[16,'impersonation','high'],EXECUTIVE_IMPERSONATION:[18,'impersonation','high'],KNOWN_CONTACT_IMPERSONATION:[18,'impersonation','high'],FAKE_AUTHORITY_CLAIM:[18,'impersonation','high'],SUSPICIOUS_LINK:[26,'device_access','high'],URL_SHORTENER:[6,'device_access','medium'],APK_INSTALL_REQUEST:[60,'device_access','critical'],REMOTE_ACCESS_REQUEST:[60,'device_access','critical'],SCREEN_SHARE_REQUEST:[18,'device_access','high'],DISABLE_SECURITY_REQUEST:[60,'device_access','critical'],MOVE_OFF_PLATFORM:[8,'device_access','medium'],GUARANTEED_RETURN:[22,'investment_earnings','high'],UNREALISTIC_RETURN:[20,'investment_earnings','high'],PAY_TO_UNLOCK_EARNINGS:[28,'investment_earnings','high'],TASK_RECHARGE_REQUEST:[28,'investment_earnings','high'],FAKE_JOB_FEE:[26,'investment_earnings','high'],PRESSURE_TO_RECRUIT:[8,'investment_earnings','medium'],FAKE_DELIVERY_FEE:[22,'commerce_delivery','high'],OFF_PLATFORM_PAYMENT:[15,'commerce_delivery','high'],PRIZE_FEE_REQUEST:[24,'commerce_delivery','high'],UNSOLICITED_PRIZE:[10,'commerce_delivery','medium'],FAKE_ESCROW_OR_MIDDLEMAN:[28,'commerce_delivery','high'] };\nconst nonScoring = { INSUFFICIENT_CONTEXT:'medium',LOW_IMAGE_QUALITY:'medium',LOW_AUDIO_QUALITY:'medium',CONFLICTING_EVIDENCE:'medium',UNVERIFIABLE_CLAIM:'low',POSSIBLE_PROMPT_INJECTION:'high' };\nconst groups = [{group:'credential_access',cap:75},{group:'financial_request',cap:70},{group:'pressure_manipulation',cap:45},{group:'impersonation',cap:45},{group:'device_access',cap:80},{group:'investment_earnings',cap:70},{group:'commerce_delivery',cap:60}];\nconst bonuses = [{id:'bank_impersonation_with_otp',codes:['BANK_IMPERSONATION','OTP_REQUEST'],points:6},{id:'government_impersonation_with_urgent_payment',codes:['GOVERNMENT_IMPERSONATION','URGENT_PAYMENT'],points:6},{id:'suspicious_link_with_password_request',codes:['SUSPICIOUS_LINK','PASSWORD_REQUEST'],points:6},{id:'suspicious_link_with_card_data_request',codes:['SUSPICIOUS_LINK','CARD_DATA_REQUEST'],points:6},{id:'remote_access_with_screen_share',codes:['REMOTE_ACCESS_REQUEST','SCREEN_SHARE_REQUEST'],points:5},{id:'remote_access_with_disabled_security',codes:['REMOTE_ACCESS_REQUEST','DISABLE_SECURITY_REQUEST'],points:5},{id:'guaranteed_return_with_payment',codes:['GUARANTEED_RETURN','PAYMENT_REQUEST'],points:5},{id:'unrealistic_return_with_advance_fee',codes:['UNREALISTIC_RETURN','ADVANCE_FEE_REQUEST'],points:5},{id:'task_recharge_with_locked_earnings',codes:['TASK_RECHARGE_REQUEST','PAY_TO_UNLOCK_EARNINGS'],points:6},{id:'unsolicited_prize_with_fee',codes:['UNSOLICITED_PRIZE','PRIZE_FEE_REQUEST'],points:6}];\nconst make500 = () => [{ json: { ok: false, status_code: 500, public_response: { error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.' }, request_id: context && context.request_id || null, timestamp: new Date().toISOString() } } }];\ntry {\n  const source = Array.isArray(input.indicators) ? input.indicators : [];\n  const accepted = []; const ignored = []; const warnings = []; const seen = new Set(); let unsupported = false; let malformed = false; let severityMismatch = false;\n  for (const raw of source) { const code = raw && typeof raw.code === 'string' ? raw.code : null; const configured = code && (weights[code] || (Object.prototype.hasOwnProperty.call(nonScoring, code) ? [0,null,nonScoring[code]] : null)); if (!configured) { unsupported = true; ignored.push({code,reason:'unsupported_indicator'}); continue; } const evidence = raw && typeof raw.evidence === 'string' ? raw.evidence.trim() : ''; if (!evidence) { malformed = true; ignored.push({code,reason:'missing_evidence'}); continue; } if (seen.has(code)) { ignored.push({code,reason:'duplicate_code'}); continue; } seen.add(code); if (Object.prototype.hasOwnProperty.call(raw,'severity') && raw.severity !== configured[2]) { severityMismatch = true; warnings.push({code,warning:'severity_mismatch',supplied_severity:String(raw.severity),expected_severity:configured[2]}); } accepted.push({code,evidence}); }\n  const normalize = (value) => value.trim().replace(/\\s+/g,' ').toLowerCase();\n  const generic = accepted.find((entry) => entry.code === 'CREDENTIAL_REQUEST');\n  if (generic) { const preferredCodes = ['OTP_REQUEST','PASSWORD_REQUEST','CARD_DATA_REQUEST','VERIFICATION_CODE_FORWARDING']; const preferred = accepted.find((entry) => preferredCodes.includes(entry.code) && (normalize(entry.evidence).includes(normalize(generic.evidence)) || normalize(generic.evidence).includes(normalize(entry.evidence)))); if (preferred) { accepted.splice(accepted.indexOf(generic),1); ignored.push({code:'CREDENTIAL_REQUEST',reason:'suppressed_by_specific_indicator',preferred_code:preferred.code}); } }\n  const activeCodes = new Set(accepted.map((entry) => entry.code));\n  const scored = accepted.filter((entry) => weights[entry.code]).map((entry) => ({code:entry.code,weight:weights[entry.code][0],group:weights[entry.code][1]})).sort((a,b) => a.code.localeCompare(b.code));\n  const groupScores = groups.map((definition) => { const rawScore = scored.filter((entry) => entry.group === definition.group).reduce((sum,entry) => sum + entry.weight,0); return {group:definition.group,raw_score:rawScore,cap:definition.cap,applied_score:Math.min(rawScore,definition.cap)}; });\n  const baseScore = groupScores.reduce((sum,entry) => sum + entry.applied_score,0); const appliedBonuses = []; let bonusScore = 0; for (const bonus of bonuses) { if (bonus.codes.every((code) => activeCodes.has(code)) && bonusScore < 15) { const points = Math.min(bonus.points,15-bonusScore); if (points > 0) { appliedBonuses.push({id:bonus.id,points}); bonusScore += points; } } }\n  const preFinal = baseScore + bonusScore; const finalScore = Math.min(100,preFinal); const riskLevel = finalScore <= 29 ? 'low' : finalScore <= 59 ? 'medium' : finalScore <= 79 ? 'high' : 'critical';\n  const confidenceValid = typeof input.confidence === 'number' && Number.isFinite(input.confidence) && input.confidence >= 0 && input.confidence <= 1; let review = !confidenceValid || input.confidence < 0.65 || unsupported || malformed || severityMismatch || activeCodes.has('CONFLICTING_EVIDENCE') || activeCodes.has('LOW_IMAGE_QUALITY') || activeCodes.has('LOW_AUDIO_QUALITY') || (activeCodes.has('INSUFFICIENT_CONTEXT') && finalScore >= 30);\n  const scoring = { scoring_version:'1.0.0',taxonomy_version:'1.0.0',risk_score:finalScore,risk_level:riskLevel,needs_human_review:review,scored_indicators:scored,group_scores:groupScores,applied_bonuses:appliedBonuses,ignored_indicators:ignored,validation_warnings:warnings,scoring_summary:{base_score:baseScore,bonus_score:bonusScore,capped_score:finalScore,group_capped_base_score:baseScore,pre_final_cap_score:preFinal,final_score:finalScore} };\n  return [{ json: { ok: true, context, analysis_output: input, scoring } }];\n} catch (error) { return make500(); }"
+        "jsCode": "const data = $input.first().json;\nconst context = data.context;\nconst input = data.analysis_output;\nconst weights = { OTP_REQUEST:[60,'credential_access','critical'],PASSWORD_REQUEST:[60,'credential_access','critical'],CREDENTIAL_REQUEST:[42,'credential_access','critical'],CARD_DATA_REQUEST:[60,'credential_access','critical'],IDENTITY_DATA_REQUEST:[18,'credential_access','high'],VERIFICATION_CODE_FORWARDING:[60,'credential_access','critical'],PAYMENT_REQUEST:[10,'financial_request','medium'],URGENT_PAYMENT:[14,'financial_request','high'],ADVANCE_FEE_REQUEST:[26,'financial_request','high'],UNUSUAL_PAYMENT_METHOD:[18,'financial_request','high'],MONEY_MULE_REQUEST:[60,'financial_request','critical'],REFUND_OVERPAYMENT:[28,'financial_request','high'],URGENCY_PRESSURE:[8,'pressure_manipulation','high'],THREAT_OR_INTIMIDATION:[28,'pressure_manipulation','critical'],SECRECY_REQUEST:[10,'pressure_manipulation','high'],ISOLATION_FROM_TRUSTED_CONTACTS:[14,'pressure_manipulation','high'],EMOTIONAL_MANIPULATION:[8,'pressure_manipulation','medium'],SCARCITY_PRESSURE:[7,'pressure_manipulation','medium'],BANK_IMPERSONATION:[18,'impersonation','high'],GOVERNMENT_IMPERSONATION:[20,'impersonation','high'],COMPANY_IMPERSONATION:[16,'impersonation','high'],EXECUTIVE_IMPERSONATION:[18,'impersonation','high'],KNOWN_CONTACT_IMPERSONATION:[18,'impersonation','high'],FAKE_AUTHORITY_CLAIM:[18,'impersonation','high'],SUSPICIOUS_LINK:[26,'device_access','high'],URL_SHORTENER:[6,'device_access','medium'],APK_INSTALL_REQUEST:[60,'device_access','critical'],REMOTE_ACCESS_REQUEST:[60,'device_access','critical'],SCREEN_SHARE_REQUEST:[18,'device_access','high'],DISABLE_SECURITY_REQUEST:[60,'device_access','critical'],MOVE_OFF_PLATFORM:[8,'device_access','medium'],GUARANTEED_RETURN:[22,'investment_earnings','high'],UNREALISTIC_RETURN:[20,'investment_earnings','high'],PAY_TO_UNLOCK_EARNINGS:[28,'investment_earnings','high'],TASK_RECHARGE_REQUEST:[28,'investment_earnings','high'],FAKE_JOB_FEE:[26,'investment_earnings','high'],PRESSURE_TO_RECRUIT:[8,'investment_earnings','medium'],FAKE_DELIVERY_FEE:[22,'commerce_delivery','high'],OFF_PLATFORM_PAYMENT:[15,'commerce_delivery','high'],PRIZE_FEE_REQUEST:[24,'commerce_delivery','high'],UNSOLICITED_PRIZE:[10,'commerce_delivery','medium'],FAKE_ESCROW_OR_MIDDLEMAN:[28,'commerce_delivery','high'] };\nconst nonScoring = { INSUFFICIENT_CONTEXT:'medium',LOW_IMAGE_QUALITY:'medium',LOW_AUDIO_QUALITY:'medium',CONFLICTING_EVIDENCE:'medium',UNVERIFIABLE_CLAIM:'low',POSSIBLE_PROMPT_INJECTION:'high' };\nconst groups = [{group:'credential_access',cap:75},{group:'financial_request',cap:70},{group:'pressure_manipulation',cap:45},{group:'impersonation',cap:45},{group:'device_access',cap:80},{group:'investment_earnings',cap:70},{group:'commerce_delivery',cap:60}];\nconst bonuses = [{id:'bank_impersonation_with_otp',codes:['BANK_IMPERSONATION','OTP_REQUEST'],points:6},{id:'government_impersonation_with_urgent_payment',codes:['GOVERNMENT_IMPERSONATION','URGENT_PAYMENT'],points:6},{id:'suspicious_link_with_password_request',codes:['SUSPICIOUS_LINK','PASSWORD_REQUEST'],points:6},{id:'suspicious_link_with_card_data_request',codes:['SUSPICIOUS_LINK','CARD_DATA_REQUEST'],points:6},{id:'remote_access_with_screen_share',codes:['REMOTE_ACCESS_REQUEST','SCREEN_SHARE_REQUEST'],points:5},{id:'remote_access_with_disabled_security',codes:['REMOTE_ACCESS_REQUEST','DISABLE_SECURITY_REQUEST'],points:5},{id:'guaranteed_return_with_payment',codes:['GUARANTEED_RETURN','PAYMENT_REQUEST'],points:5},{id:'unrealistic_return_with_advance_fee',codes:['UNREALISTIC_RETURN','ADVANCE_FEE_REQUEST'],points:5},{id:'task_recharge_with_locked_earnings',codes:['TASK_RECHARGE_REQUEST','PAY_TO_UNLOCK_EARNINGS'],points:6},{id:'unsolicited_prize_with_fee',codes:['UNSOLICITED_PRIZE','PRIZE_FEE_REQUEST'],points:6}];\nconst make500 = () => [{ json: { ok: false, status_code: 500, public_response: { error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.' }, request_id: context && context.request_id || null, timestamp: new Date().toISOString() } } }];\ntry {\n  const source = Array.isArray(input.indicators) ? input.indicators : [];\n  const accepted = []; const ignored = []; const warnings = []; const seen = new Set(); let unsupported = false; let malformed = false; let severityMismatch = false;\n  for (const raw of source) { const code = raw && typeof raw.code === 'string' ? raw.code : null; const configured = code && (weights[code] || (Object.prototype.hasOwnProperty.call(nonScoring, code) ? [0,null,nonScoring[code]] : null)); if (!configured) { unsupported = true; ignored.push({code,reason:'unsupported_indicator'}); continue; } const evidence = raw && typeof raw.evidence === 'string' ? raw.evidence.trim() : ''; if (!evidence) { malformed = true; ignored.push({code,reason:'missing_evidence'}); continue; } if (seen.has(code)) { ignored.push({code,reason:'duplicate_code'}); continue; } seen.add(code); if (Object.prototype.hasOwnProperty.call(raw,'severity') && raw.severity !== configured[2]) { severityMismatch = true; warnings.push({code,warning:'severity_mismatch',supplied_severity:String(raw.severity),expected_severity:configured[2]}); } accepted.push({code,evidence}); }\n  const normalize = (value) => value.trim().replace(/\\s+/g,' ').toLowerCase();\n  const generic = accepted.find((entry) => entry.code === 'CREDENTIAL_REQUEST');\n  if (generic) { const preferredCodes = ['OTP_REQUEST','PASSWORD_REQUEST','CARD_DATA_REQUEST','VERIFICATION_CODE_FORWARDING']; const preferred = accepted.find((entry) => preferredCodes.includes(entry.code) && (normalize(entry.evidence).includes(normalize(generic.evidence)) || normalize(generic.evidence).includes(normalize(entry.evidence)))); if (preferred) { accepted.splice(accepted.indexOf(generic),1); ignored.push({code:'CREDENTIAL_REQUEST',reason:'suppressed_by_specific_indicator',preferred_code:preferred.code}); } }\n  const activeCodes = new Set(accepted.map((entry) => entry.code));\n  const scored = accepted.filter((entry) => weights[entry.code]).map((entry) => ({code:entry.code,weight:weights[entry.code][0],group:weights[entry.code][1]})).sort((a,b) => a.code.localeCompare(b.code));\n  const groupScores = groups.map((definition) => { const rawScore = scored.filter((entry) => entry.group === definition.group).reduce((sum,entry) => sum + entry.weight,0); return {group:definition.group,raw_score:rawScore,cap:definition.cap,applied_score:Math.min(rawScore,definition.cap)}; });\n  const baseScore = groupScores.reduce((sum,entry) => sum + entry.applied_score,0); const appliedBonuses = []; let bonusScore = 0; for (const bonus of bonuses) { if (bonus.codes.every((code) => activeCodes.has(code)) && bonusScore < 15) { const points = Math.min(bonus.points,15-bonusScore); if (points > 0) { appliedBonuses.push({id:bonus.id,points}); bonusScore += points; } } }\n  const preFinal = baseScore + bonusScore; const finalScore = Math.min(100,preFinal); const riskLevel = finalScore <= 29 ? 'low' : finalScore <= 59 ? 'medium' : finalScore <= 79 ? 'high' : 'critical';\n  const REVIEW_CONFIDENCE_THRESHOLD = 0.65;\n  const confidenceValid = typeof input.confidence === 'number' && Number.isFinite(input.confidence) && input.confidence >= 0 && input.confidence <= 1; let review = !confidenceValid || input.confidence < REVIEW_CONFIDENCE_THRESHOLD || unsupported || malformed || severityMismatch || activeCodes.has('CONFLICTING_EVIDENCE') || activeCodes.has('LOW_IMAGE_QUALITY') || activeCodes.has('LOW_AUDIO_QUALITY') || activeCodes.has('INSUFFICIENT_CONTEXT');\n  const scoring = { scoring_version:'1.0.0',taxonomy_version:'1.0.0',risk_score:finalScore,risk_level:riskLevel,needs_human_review:review,scored_indicators:scored,group_scores:groupScores,applied_bonuses:appliedBonuses,ignored_indicators:ignored,validation_warnings:warnings,scoring_summary:{base_score:baseScore,bonus_score:bonusScore,capped_score:finalScore,group_capped_base_score:baseScore,pre_final_cap_score:preFinal,final_score:finalScore} };\n  return [{ json: { ok: true, context, analysis_output: input, scoring } }];\n} catch (error) { return make500(); }"
       },
       "id": "e79974b5-fb39-45f7-beba-84f8a18d96e1",
       "name": "Score Risk Deterministically",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        940,
-        -360
+        1480,
+        -400
       ]
     },
     {
@@ -202,8 +202,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1160,
-        -360
+        1700,
+        -400
       ]
     },
     {
@@ -215,8 +215,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1380,
-        -440
+        1920,
+        -480
       ]
     },
     {
@@ -249,8 +249,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1600,
-        -440
+        2140,
+        -480
       ]
     },
     {
@@ -262,7 +262,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1820,
+        2360,
         -260
       ],
       "notesInFlow": true,
@@ -281,7 +281,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        2040,
+        2580,
         -260
       ],
       "notesInFlow": true,
@@ -313,8 +313,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        -160,
-        -180
+        380,
+        -220
       ],
       "onError": "continueRegularOutput",
       "notesInFlow": true,
@@ -322,15 +322,15 @@
     },
     {
       "parameters": {
-        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction safeFailure(statusCode, requestId, diagnostics) {\n  const provider = isRecord(diagnostics) && isRecord(diagnostics.provider) ? diagnostics.provider : {};\n  const rawStatus = Number(provider.provider_http_status);\n  return {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: statusCode,\n    public_response: {\n      error: {\n        code: statusCode === 503 ? 'ANALYSIS_SERVICE_UNAVAILABLE' : 'INTERNAL_ERROR',\n        message: statusCode === 503\n          ? 'The analysis service is temporarily unavailable.'\n          : 'The analysis could not be completed.',\n        details: []\n      },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      provider: {\n        provider_name: typeof provider.provider_name === 'string' ? provider.provider_name : null,\n        provider_http_status: Number.isInteger(rawStatus) ? rawStatus : null,\n        provider_error_category: typeof provider.provider_error_category === 'string'\n          ? provider.provider_error_category\n          : 'invalid_adapter_result',\n        failure_stage: typeof provider.failure_stage === 'string'\n          ? provider.failure_stage\n          : 'adapter_contract'\n      }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const prepared = JSON.parse(JSON.stringify($('Prepare Input').item.json));\n  const context = isRecord(raw.context) ? raw.context : prepared.context;\n  const requestId = context && context.request_id;\n\n  if (\n    raw.ok === true &&\n    raw.provider_output_parsed === true &&\n    isRecord(raw.analysis_output) &&\n    isRecord(context)\n  ) {\n    return [{ json: {\n      ok: true,\n      provider_output_parsed: true,\n      context,\n      analysis_output: raw.analysis_output,\n      internal_diagnostics: isRecord(raw.internal_diagnostics) ? raw.internal_diagnostics : {}\n    } }];\n  }\n\n  if (raw.ok === false && raw.provider_output_parsed === false && (raw.status_code === 503 || raw.status_code === 500)) {\n    const failure = safeFailure(raw.status_code, requestId, raw.internal_diagnostics);\n    if (raw.status_code === 503 && isRecord(raw.public_response) && isRecord(raw.public_response.error)) {\n      const allowed = new Set(['ANALYSIS_PROVIDER_ERROR', 'ANALYSIS_SERVICE_UNAVAILABLE', 'ANALYSIS_TIMEOUT']);\n      if (allowed.has(raw.public_response.error.code)) failure.public_response.error.code = raw.public_response.error.code;\n    }\n    return [{ json: failure }];\n  }\n\n  return [{ json: safeFailure(500, requestId, raw.internal_diagnostics) }];\n} catch {\n  return [{ json: safeFailure(500, null, null) }];\n}"
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction safeFailure(statusCode, requestId, diagnostics) {\n  const provider = isRecord(diagnostics) && isRecord(diagnostics.provider) ? diagnostics.provider : {};\n  const rawStatus = Number(provider.provider_http_status);\n  return {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: statusCode,\n    public_response: {\n      error: {\n        code: statusCode === 503 ? 'ANALYSIS_SERVICE_UNAVAILABLE' : 'INTERNAL_ERROR',\n        message: statusCode === 503\n          ? 'The analysis service is temporarily unavailable.'\n          : 'The analysis could not be completed.',\n        details: []\n      },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      provider: {\n        provider_name: typeof provider.provider_name === 'string' ? provider.provider_name : null,\n        provider_http_status: Number.isInteger(rawStatus) ? rawStatus : null,\n        provider_error_category: typeof provider.provider_error_category === 'string'\n          ? provider.provider_error_category\n          : 'invalid_adapter_result',\n        failure_stage: typeof provider.failure_stage === 'string'\n          ? provider.failure_stage\n          : 'adapter_contract'\n      }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const context = isRecord(raw.context) ? raw.context : null;\n  const requestId = context && context.request_id\n    ? context.request_id\n    : isRecord(raw.public_response) && typeof raw.public_response.request_id === 'string'\n      ? raw.public_response.request_id\n      : null;\n\n  if (\n    raw.ok === true &&\n    raw.provider_output_parsed === true &&\n    isRecord(raw.analysis_output) &&\n    isRecord(context)\n  ) {\n    return [{ json: {\n      ok: true,\n      provider_output_parsed: true,\n      context,\n      analysis_output: raw.analysis_output,\n      internal_diagnostics: isRecord(raw.internal_diagnostics) ? raw.internal_diagnostics : {}\n    } }];\n  }\n\n  if (raw.ok === false && raw.provider_output_parsed === false && (raw.status_code === 503 || raw.status_code === 500)) {\n    const failure = safeFailure(raw.status_code, requestId, raw.internal_diagnostics);\n    if (raw.status_code === 503 && isRecord(raw.public_response) && isRecord(raw.public_response.error)) {\n      const allowed = new Set(['ANALYSIS_PROVIDER_ERROR', 'ANALYSIS_SERVICE_UNAVAILABLE', 'ANALYSIS_TIMEOUT']);\n      if (allowed.has(raw.public_response.error.code)) failure.public_response.error.code = raw.public_response.error.code;\n    }\n    return [{ json: failure }];\n  }\n\n  return [{ json: safeFailure(500, requestId, raw.internal_diagnostics) }];\n} catch {\n  return [{ json: safeFailure(500, null, null) }];\n}"
       },
       "id": "17768c3b-ac5f-4a7e-b72d-e3e73a920af4",
       "name": "Validate Provider Adapter Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        60,
-        -180
+        600,
+        -220
       ]
     },
     {
@@ -363,24 +363,187 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        280,
-        -180
+        820,
+        -220
       ]
     },
     {
       "parameters": {
-        "content": "## Architecture V2 — Phase 3\nThe main workflow invokes one deterministic model router and remains provider-neutral. Trusted routing configuration lives only in Model Router V1. Strict LLM validation, deterministic scoring, public response construction, Finalize Response, and the single Respond node are unchanged. Clients cannot select a provider or model.",
+        "content": "## Architecture V2 — Phase 4\nThe public endpoint accepts validated text or one Base64 PNG, JPEG, or WebP image. The image branch validates size, canonical Base64, and magic bytes before invoking Image Preprocessor V1. Only extracted text enters Model Router V1. Strict LLM validation, deterministic scoring, public response construction, and the single Respond node remain shared and unchanged.",
         "height": 250,
         "width": 700,
         "color": 5
       },
       "id": "a778b441-45c5-4fb1-8af5-fee6e92a4210",
-      "name": "Architecture V2 Phase 3 Notes",
+      "name": "Architecture V2 Phase 4 Notes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -1260,
-        -420
+        -1600,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9d951dbb-4f5a-4dd9-808e-19de88de8c80",
+              "leftValue": "={{ $json.request.input_type === 'text' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fb3c9145-59b4-494f-a065-e524f3602f84",
+      "name": "Text Input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -940,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst make500 = (requestId) => [{ json: {\n  ok: false,\n  status_code: 500,\n  public_response: {\n    error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n    request_id: requestId || null,\n    timestamp: new Date().toISOString()\n  }\n} }];\ntry {\n  const request = data.request;\n  const validation = data.image_validation;\n  if (!request || request.input_type !== 'image' || !request.content || !validation) throw new Error('Validated image input is unavailable.');\n  let hash = 2166136261;\n  const hashInput = `${request.request_id || ''}|${request.content.mime_type}|${validation.decoded_size_bytes}|${data.accepted_at}`;\n  for (let index = 0; index < hashInput.length; index += 1) { hash ^= hashInput.charCodeAt(index); hash = Math.imul(hash, 16777619); }\n  const executionPart = typeof $execution !== 'undefined' && $execution.id\n    ? String($execution.id).replace(/[^A-Za-z0-9]/g, '').slice(-12)\n    : (hash >>> 0).toString(36);\n  const requestedLanguage = request.language || 'th';\n  const context = {\n    request_id: request.request_id,\n    input_type: 'image',\n    language: request.language,\n    metadata: request.metadata,\n    accepted_at: data.accepted_at,\n    accepted_epoch_ms: data.accepted_epoch_ms,\n    analysis_id: `ana_${data.accepted_epoch_ms.toString(36)}_${executionPart}`,\n    requested_output_language: requestedLanguage\n  };\n  return [{ json: {\n    ok: true,\n    context,\n    image_input: {\n      mime_type: request.content.mime_type,\n      base64_data: request.content.data,\n      decoded_size_bytes: validation.decoded_size_bytes\n    }\n  } }];\n} catch {\n  return make500(data.request && data.request.request_id);\n}"
+      },
+      "id": "aa730deb-c381-4a2d-a74c-3e2176458af0",
+      "name": "Prepare Image Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ccedfebe-205d-43c8-83d7-2a543b5a6759",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c12aa709-cfd7-483c-9324-cc37920b98da",
+      "name": "Image Input Prepared?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -500,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Image Preprocessor V1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "f4823fb7-ebd1-4412-b1bb-a31dec64827f",
+      "name": "Execute Image Preprocessor V1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -280,
+        160
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "After import, select Image Preprocessor V1. The validated Base64 image is sent only to this sub-workflow."
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction safeDiagnostics(value, category, stage) {\n  const diagnostics = isRecord(value) && isRecord(value.image_preprocessor) ? value.image_preprocessor : {};\n  const status = Number(diagnostics.provider_http_status);\n  return {\n    image_preprocessor: {\n      provider_name: typeof diagnostics.provider_name === 'string' ? diagnostics.provider_name : null,\n      provider_http_status: Number.isInteger(status) ? status : null,\n      failure_stage: typeof diagnostics.failure_stage === 'string' ? diagnostics.failure_stage : stage,\n      error_category: typeof diagnostics.error_category === 'string' ? diagnostics.error_category : category\n    }\n  };\n}\nfunction failure(statusCode, requestId, diagnostics, code) {\n  const status = statusCode === 422 || statusCode === 503 ? statusCode : 500;\n  const errorCode = status === 422\n    ? 'IMAGE_TEXT_EXTRACTION_FAILED'\n    : status === 503\n      ? 'IMAGE_PREPROCESSOR_UNAVAILABLE'\n      : 'INTERNAL_ERROR';\n  const message = status === 422\n    ? 'No usable text could be extracted from the submitted image.'\n    : status === 503\n      ? 'The image could not be processed at this time.'\n      : 'The analysis could not be completed.';\n  return {\n    ok: false,\n    image_text_extracted: false,\n    status_code: status,\n    public_response: {\n      error: { code: code || errorCode, message, details: [] },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: safeDiagnostics(\n      diagnostics,\n      status === 422 ? 'no_usable_text' : status === 503 ? 'preprocessor_unavailable' : 'invalid_preprocessor_result',\n      status === 422 ? 'text_extraction' : status === 503 ? 'provider_request' : 'image_normalization'\n    )\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  if (raw.ok === true && raw.image_text_extracted === true && isRecord(raw.context) && typeof raw.extracted_text === 'string' && raw.extracted_text.trim()) {\n    const mimeType = raw.source_mime_type;\n    const context = {\n      ...raw.context,\n      input_type: 'image',\n      content: raw.extracted_text.trim(),\n      source_context: {\n        original_input_type: 'image',\n        image_mime_type: typeof mimeType === 'string' ? mimeType : null\n      }\n    };\n    return [{ json: {\n      ok: true,\n      context,\n      internal_diagnostics: safeDiagnostics(raw.internal_diagnostics, null, null)\n    } }];\n  }\n  const requestId = isRecord(raw.public_response) && typeof raw.public_response.request_id === 'string'\n    ? raw.public_response.request_id\n    : isRecord(raw.context) && typeof raw.context.request_id === 'string'\n      ? raw.context.request_id\n      : null;\n  const status = raw.status_code === 422 || raw.status_code === 503 ? raw.status_code : 500;\n  return [{ json: failure(status, requestId, raw.internal_diagnostics) }];\n} catch {\n  return [{ json: failure(500, null, null) }];\n}"
+      },
+      "id": "20b3c52b-6d29-478f-9050-11fb8e1639cc",
+      "name": "Normalize Extracted Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        160
+      ],
+      "notesInFlow": true,
+      "notes": "Converts extracted text into the existing analysis context and omits Base64 before Model Router V1."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8e6a8a3c-dc46-4f02-b841-c3d735fea91a",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1488b95-6495-4a09-bed7-22bd9ba20cfa",
+      "name": "Image Text Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        160,
+        160
       ]
     }
   ],
@@ -412,7 +575,7 @@
       "main": [
         [
           {
-            "node": "Prepare Input",
+            "node": "Text Input?",
             "type": "main",
             "index": 0
           }
@@ -420,6 +583,24 @@
         [
           {
             "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Input?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Image Input",
             "type": "main",
             "index": 0
           }
@@ -449,6 +630,86 @@
         [
           {
             "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Image Input": {
+      "main": [
+        [
+          {
+            "node": "Image Input Prepared?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Input Prepared?": {
+      "main": [
+        [
+          {
+            "node": "Execute Image Preprocessor V1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Image Preprocessor V1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Extracted Text": {
+      "main": [
+        [
+          {
+            "node": "Image Text Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Text Ready?": {
+      "main": [
+        [
+          {
+            "node": "Execute Model Router V1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Model Router V1": {
+      "main": [
+        [
+          {
+            "node": "Validate Provider Adapter Result",
             "type": "main",
             "index": 0
           }
@@ -581,24 +842,13 @@
           }
         ]
       ]
-    },
-    "Execute Model Router V1": {
-      "main": [
-        [
-          {
-            "node": "Validate Provider Adapter Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "81939010-e08f-4119-8041-0842bed2e957",
+  "versionId": "1c71dafc-2441-46b2-a559-8deda6523092",
   "meta": {
     "templateCredsSetupCompleted": false
   },

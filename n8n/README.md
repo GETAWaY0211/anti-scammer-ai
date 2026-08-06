@@ -1,31 +1,39 @@
 # Anti-Scammer AI n8n workflows
 
-This directory contains the text-only MVP workflows, including the public API orchestration, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
+This directory contains the text-and-image MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
-## Architecture V2 — Phase 3
+## Architecture V2 — Phase 4
 
-`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Phase 3 inserts the deterministic `n8n/workflows/model-router-v1.json` boundary between the main workflow and the provider adapters, while preserving the public request and response contracts, strict LLM-output validation, and deterministic scoring.
+`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Phase 4 accepts either text or one Base64 image. Validated images are converted to extracted text by `n8n/workflows/image-preprocessor-v1.json` before entering the same router, strict validation, scoring, and public-response pipeline as text.
 
 The runtime path is:
 
 ```text
-Webhook -> Validate Request -> Prepare Input -> Execute Model Router V1
-        -> Validate Provider Adapter Result -> Validate LLM Output
-        -> Score Risk Deterministically -> Build Public Response
-        -> Finalize Response -> Respond
+Webhook -> Validate Request -> Text Input?
+  text  -> Prepare Input ---------------------------------------> Model Router V1
+  image -> Prepare Image Input -> Image Preprocessor V1
+         -> Normalize Extracted Text ---------------------------> Model Router V1
+
+Model Router V1 -> Validate Provider Adapter Result -> Validate LLM Output
+                -> Score Risk Deterministically -> Build Public Response
+                -> Finalize Response -> Respond
 
 Model Router V1
   -> Provider Gemini V1
   -> Provider Mock V1
 ```
 
-The main workflow owns the public API boundary, request validation, provider-result validation, authoritative LLM-output validation, deterministic scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no provider-selection logic or provider-specific request handling.
+The main workflow owns the public API boundary, Base64 and magic-byte validation, input-type branching, extracted-text normalization, provider-result validation, authoritative LLM-output validation, deterministic scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no analysis-provider selection logic.
+
+**Image Preprocessor V1** owns the dedicated Gemini vision request and performs text extraction only. It treats image pixels and visible instructions as untrusted, preserves visible conversational text and order, and does not classify scams or calculate risk. It returns `422 IMAGE_TEXT_EXTRACTION_FAILED` when no usable text is found and safely normalizes provider failures to `503 IMAGE_PREPROCESSOR_UNAVAILABLE`.
 
 **Model Router V1** validates the internal context, reads the trusted `ACTIVE_PROVIDER` constant, executes exactly one provider, waits for one normalized result, and adds non-public routing diagnostics. The allowed values are `gemini` and `mock`; the default is `gemini`. Routing is deterministic and has no retry, randomization, health check, or automatic fallback. Public requests cannot select a provider or model, and fields such as `provider`, `model`, `route`, `backend`, and `use_mock` remain invalid request fields.
 
 **Provider Gemini V1** remains unchanged and owns all Gemini-specific model, endpoint, credential, request, transport, and response-envelope behavior. **Provider Mock V1** is a deterministic development adapter with no HTTP Request node and no credentials. It recognizes bank-plus-OTP, guaranteed-return-plus-payment, prompt-injection, and ordinary-content cases; it emits only the five model-output fields and never calculates `risk_score` or `risk_level`.
 
-The router and both adapters receive one item containing `context` and return one normalized item. A successful result has `ok: true`, `provider_output_parsed: true`, `analysis_output`, retained internal `context`, and safe `internal_diagnostics`. A failure has `ok: false`, `provider_output_parsed: false`, a normalized `status_code`, a safe `public_response`, and non-public diagnostics. The main workflow never publishes provider or router diagnostics.
+For images, the main workflow accepts exactly one `image/png`, `image/jpeg`, or `image/webp` object containing canonical Base64 data only. It rejects data URI prefixes, malformed Base64, MIME/signature mismatches, decoded images over 5 MiB, and unknown image fields before invoking the preprocessor. Base64 is omitted before Model Router V1 executes; only extracted text becomes `context.content`.
+
+The router and analysis adapters continue to receive one item containing text in `context` and return one normalized item. A successful result has `ok: true`, `provider_output_parsed: true`, `analysis_output`, retained internal `context`, and safe `internal_diagnostics`. A failure has `ok: false`, `provider_output_parsed: false`, a normalized `status_code`, a safe `public_response`, and non-public diagnostics. The main workflow never publishes image-preprocessor, provider, or router diagnostics.
 
 The internal boundary is intentionally provider-neutral outside `internal_diagnostics`:
 
@@ -50,9 +58,9 @@ The V2 public HTTP outcomes are:
 
 - `200` for a successful analysis
 - `400` for an invalid request
-- `413` when text exceeds the configured maximum length
-- `422` when parseable model JSON fails strict schema or taxonomy validation
-- `503` for provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
+- `413` when text or image data exceeds its configured limit
+- `422` when an image has no usable extracted text or parseable model JSON fails strict schema or taxonomy validation
+- `503` for image-preprocessor or analysis-provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
 - `500` for an unexpected internal workflow error
 
 `gemini-3.6-flash` remains the Gemini adapter default. **Validate LLM Output** in the main workflow remains authoritative for both providers and continues to enforce the complete project schema, taxonomy, uniqueness, evidence grounding, redaction, and length rules before deterministic scoring.
@@ -63,23 +71,27 @@ Import and configure the workflows in this order:
 2. Select the Gemini HTTP Header Auth credential on **Call Gemini API** in the provider workflow.
 3. Import `n8n/workflows/provider-mock-v1.json`.
 4. Import `n8n/workflows/model-router-v1.json`.
-5. In **Execute Provider Gemini V1**, select the imported **Provider Gemini V1** workflow.
-6. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
-7. Import or update `n8n/workflows/text-analysis-main-v2.json`.
-8. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
-9. Save all workflows, test through the main workflow, and activate only the main public workflow when ready.
+5. Import `n8n/workflows/image-preprocessor-v1.json` and select the Gemini HTTP Header Auth credential on **Call Gemini Image Extraction**.
+6. In **Execute Provider Gemini V1**, select the imported **Provider Gemini V1** workflow.
+7. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
+8. Import or update `n8n/workflows/text-analysis-main-v2.json`.
+9. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
+10. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
+11. Save and activate or publish every workflow in dependency order.
 
-The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. All three references must be selected after import.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. All four references must be selected after import. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Model Router V1, then Text Analysis Main V2.
 
-### Phase 3 manual routing tests
+### Phase 4 manual tests
 
-Keep `const ACTIVE_PROVIDER = 'gemini';` in **Validate Router Input** to test the existing Gemini path. A valid scam request should return HTTP `200` with a deterministic score and no provider or router fields in the public payload.
+First rerun the existing text bank/OTP request. It should still return HTTP `200` with unchanged analysis behavior.
 
-For development testing, temporarily change the trusted constant to `mock`. A bank/OTP message should deterministically emit `OTP_REQUEST` and `BANK_IMPERSONATION`, plus `URGENCY_PRESSURE` only when supported by text. Repeated identical requests should produce the same indicator set and score. Ordinary content should return HTTP `200` with low risk. Missing content and content longer than 10,000 characters must still return `400` and `413` before router execution.
+Then test a PNG screenshot containing a Thai scam conversation and a JPEG containing an ordinary conversation. Expected results are HTTP `200`, analysis of the extracted text, deterministic scoring, and no image, extraction, provider, router, or diagnostic fields in the response.
 
-To test invalid router configuration, temporarily use an unsupported constant. The expected public result is HTTP `500` with `INTERNAL_ERROR` and no provider or router diagnostics. Restore `gemini` after testing. Do not treat these runtime checks as complete until they have been executed in the target n8n instance.
+Negative image tests must cover `image/gif`, a MIME/signature mismatch, malformed Base64, a data URI prefix, an image larger than 5 MiB decoded, and an image with no readable text. Expected statuses are respectively `400`, `400`, `400`, `400`, `413`, and `422 IMAGE_TEXT_EXTRACTION_FAILED`. An invalid image-preprocessor credential must return `503` without exposing provider details. Visible prompt-injection text must be extracted faithfully and may later produce `POSSIBLE_PROMPT_INJECTION`, which adds zero risk by itself.
 
-`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available as the earlier standalone mock baseline. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Automatic fallback, retries, external second providers, database lookups, and threat-intelligence lookups remain out of scope for Phase 3.
+Do not treat these runtime checks as complete until they have been executed in the target n8n instance.
+
+`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available as the earlier standalone mock baseline. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Multipart uploads, image URLs, multiple images, automatic fallback, retries, external second providers, database lookups, and threat-intelligence lookups remain out of scope for Phase 4.
 
 ## Workflow file
 
@@ -109,6 +121,43 @@ Set the URL once for the test or production webhook:
 ```powershell
 $antiScammerUrl = 'http://localhost:5678/webhook-test/api/v1/analyze'
 ```
+
+Use this helper for either request shape. It serializes JSON as UTF-8:
+
+```powershell
+function Invoke-ScamAnalysis {
+  param([Parameter(Mandatory)][hashtable]$Request)
+
+  $json = $Request | ConvertTo-Json -Depth 8
+  Invoke-RestMethod -Method Post -Uri $antiScammerUrl `
+    -ContentType 'application/json; charset=utf-8' `
+    -Body ([System.Text.Encoding]::UTF8.GetBytes($json))
+}
+```
+
+To submit one image, read its bytes and send Base64 data without a data URI prefix:
+
+```powershell
+$imagePath = 'C:\path\to\screenshot.png'
+$base64 = [Convert]::ToBase64String(
+  [System.IO.File]::ReadAllBytes($imagePath)
+)
+
+Invoke-ScamAnalysis @{
+  input_type = 'image'
+  content = @{
+    mime_type = 'image/png'
+    data = $base64
+  }
+  request_id = 'phase4-image-001'
+  language = 'th'
+  metadata = @{
+    source = 'screenshot'
+  }
+}
+```
+
+Change `mime_type` to `image/jpeg` or `image/webp` only when it matches the file's actual signature.
 
 ### 1. OTP scam
 
@@ -204,26 +253,31 @@ Expected behavior: HTTP `413 Payload Too Large` with error code `CONTENT_TOO_LAR
 
 ## Validation and error behavior
 
-The request boundary accepts only `input_type`, `content`, `request_id`, `language`, and `metadata`. This text-only workflow requires `input_type` to equal `text`, rejects blank or oversized content, rejects unknown fields, validates optional fields, and rejects obvious sensitive metadata. The maximum content length is currently the `MAX_TEXT_LENGTH` constant in the **Validate Request** Code node (`10000` characters).
+The request boundary accepts only `input_type`, `content`, `request_id`, `language`, and `metadata`. Text content must be non-empty and no longer than 10,000 characters. Image content must contain exactly `mime_type` and Base64-only `data`, use PNG/JPEG/WebP, match its magic bytes, and decode to no more than 5 MiB. The workflow rejects unknown fields and obvious sensitive metadata.
 
 Error branches use the API contract's safe error envelope:
 
-- `400` for request-validation failures and unsupported input type for this text-only workflow
-- `413` for content exceeding the configured maximum text length
-- `422` when generated analysis output fails the strict schema/taxonomy validator
-- `500` when an internal preparation, mock generation, validation, scoring, or response-construction stage fails unexpectedly
+- `400` for request-validation failures, unsupported input type or image MIME, malformed Base64, data URI input, or MIME/signature mismatch
+- `413` for text or image content exceeding its configured limit
+- `422` when no usable image text is extracted or generated analysis output fails the strict schema/taxonomy validator
+- `503` when image preprocessing or analysis-provider service is unavailable
+- `500` when an internal preparation, validation, routing, scoring, or response-construction stage fails unexpectedly
 
 Error responses do not include stack traces, Code node source, credentials, environment variables, prompts, provider details, raw model output, or internal execution data.
 
+The deterministic human-review confidence threshold is `0.65`. Review is required for invalid confidence, confidence below that threshold, unsupported indicators, malformed supported indicators, taxonomy severity mismatch, `CONFLICTING_EVIDENCE`, `LOW_IMAGE_QUALITY`, or `LOW_AUDIO_QUALITY`. `INSUFFICIENT_CONTEXT` always forces review regardless of score or valid confidence. These quality and uncertainty indicators remain non-scoring, and `POSSIBLE_PROMPT_INJECTION` alone neither adds risk points nor forces review.
+
 ## Inspecting internal diagnostics
 
-Open an execution in n8n and inspect the output of **Score Risk Deterministically** or **Build Public Response**. Internal execution data includes scored indicators, group scores and caps, applied bonuses, ignored indicators, validation warnings, and the scoring summary.
+Open an execution in n8n and inspect the output of **Normalize Extracted Text**, **Score Risk Deterministically**, or **Build Public Response**. Internal execution data includes image-preprocessor diagnostics, scored indicators, group scores and caps, applied bonuses, ignored indicators, validation warnings, and the scoring summary.
 
-The **Respond 200** node sends only `public_response`. It does not expose `internal_diagnostics`, mock-only fields, or n8n execution data. Restrict access to the n8n editor and execution history because internal data may still contain submitted content.
+The main workflow's single **Respond** node sends only `public_response`. It does not expose `internal_diagnostics`, image-preprocessor fields, mock-only fields, or n8n execution data. Restrict access to the n8n editor and execution history because internal data may still contain submitted content.
+
+n8n execution history may retain Webhook inputs and intermediate node data, including Base64 images, provider requests, and extracted text, even though these values are removed before Model Router V1 and never enter the public response. In production, minimize or disable successful-execution retention where operationally possible, use aggressive execution pruning, and restrict editor and execution access to authorized operators.
 
 ## Standalone mock baseline
 
-`text-analysis-mock-v1.json` remains a standalone provider-independent baseline. Phase 3 development routing should use `provider-mock-v1.json` through **Model Router V1** instead. In both architectures, strict validation and deterministic scoring remain between model output and the public response.
+`text-analysis-mock-v1.json` remains a standalone provider-independent baseline. Phase 4 development routing should use `provider-mock-v1.json` through **Model Router V1** instead. In both architectures, strict validation and deterministic scoring remain between model output and the public response.
 
 Repository contracts remain the source of truth:
 

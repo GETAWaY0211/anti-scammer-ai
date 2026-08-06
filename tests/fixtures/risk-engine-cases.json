@@ -5,7 +5,7 @@
     "input": {
       "indicators": [],
       "scam_categories": ["unclear"],
-      "confidence": 0.95
+      "confidence": 0.90
     },
     "expected": {
       "min_score": 0,
@@ -287,7 +287,7 @@
     "input": {
       "indicators": [],
       "scam_categories": ["unclear"],
-      "confidence": 0.64
+      "confidence": 0.55
     },
     "expected": {
       "min_score": 0,
@@ -312,6 +312,27 @@
     "expected": {
       "min_score": 0,
       "max_score": 0,
+      "needs_human_review": true
+    }
+  },
+  {
+    "id": "insufficient-context-review",
+    "description_th": "INSUFFICIENT_CONTEXT ต้องเปิด human review เสมอแม้ confidence เท่ากับ 0.90 และคะแนนเป็นศูนย์",
+    "input": {
+      "indicators": [
+        {
+          "code": "INSUFFICIENT_CONTEXT",
+          "severity": "medium",
+          "evidence": "ข้อความสั้นเกินไปและไม่มีบริบทเพียงพอ"
+        }
+      ],
+      "scam_categories": ["unclear"],
+      "confidence": 0.90
+    },
+    "expected": {
+      "min_score": 0,
+      "max_score": 0,
+      "risk_level": "low",
       "needs_human_review": true
     }
   },

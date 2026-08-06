@@ -21,13 +21,13 @@ This contract defines the HTTP interface for submitting potentially fraudulent c
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `input_type` | string | Yes | Content format. One of `text`, `image`, or `voice`. |
-| `content` | string | Yes | Text to analyze, or a Base64-encoded payload or approved file URL for image and voice input. |
+| `input_type` | string | Yes | Content format. One of `text` or `image`. |
+| `content` | string or object | Yes | A non-empty string for `text`, or the image object defined below for `image`. |
 | `request_id` | string | No | Client-generated identifier used for tracing and idempotency. |
 | `language` | string | No | BCP 47 language tag, such as `en`, `th`, or `en-US`. If omitted, the workflow may detect the language. |
 | `metadata` | object | No | Non-sensitive contextual data that may improve analysis. Unknown keys may be ignored. |
 
-### Request Example
+### Text Request Example
 
 ```json
 {
@@ -38,6 +38,30 @@ This contract defines the HTTP interface for submitting potentially fraudulent c
   "metadata": {
     "channel": "sms",
     "sender_type": "unknown"
+  }
+}
+```
+
+### Image Request
+
+For `input_type: "image"`, `content` must be one object containing exactly:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `mime_type` | string | Yes | One of `image/png`, `image/jpeg`, or `image/webp`. The declared type is verified against the decoded file signature. |
+| `data` | string | Yes | Canonical Base64 data only. A `data:` URI prefix, whitespace, URL, array, or multiple images are not allowed. |
+
+```json
+{
+  "input_type": "image",
+  "content": {
+    "mime_type": "image/png",
+    "data": "<base64-data-only>"
+  },
+  "request_id": "req_image_01J4EXAMPLE",
+  "language": "th",
+  "metadata": {
+    "source": "screenshot"
   }
 }
 ```
@@ -60,7 +84,7 @@ This contract defines the HTTP interface for submitting potentially fraudulent c
 | `indicators` | array | Detected scam or manipulation indicators. May be empty when none are found. |
 | `recommended_actions` | array of strings | Safe, practical actions for the user. May be empty for low-risk content. |
 | `confidence` | number | Analysis confidence from `0.0` to `1.0`, inclusive. It is not a guarantee that the assessment is correct. |
-| `needs_human_review` | boolean | Whether the result requires human review because confidence is below the configured threshold, evidence conflicts materially, input quality prevents reliable analysis, or another configured review policy applies. |
+| `needs_human_review` | boolean | Whether deterministic policy requires human review. Review is required for invalid confidence, confidence below `0.65`, unsupported or malformed indicators, taxonomy severity mismatch, conflicting evidence, insufficient context, or low image/audio quality. |
 | `processing_time_ms` | integer | Non-negative server-side workflow processing time in milliseconds. It does not include client network latency. |
 
 ### Indicator Object
@@ -122,15 +146,24 @@ Every item in `indicators` contains all of the following fields:
 
 - The request body must be valid JSON and use `Content-Type: application/json`.
 - `input_type` and `content` are required. Optional fields may be omitted.
-- `input_type` must be exactly `text`, `image`, or `voice`.
-- `content` must be a non-empty string after trimming whitespace.
-- For `text`, `content` contains the text to analyze.
-- For `image` and `voice`, `content` must contain either a valid Base64-encoded payload or an HTTPS URL from an approved host. The deployment must document its accepted encoding, MIME types, file-size limit, and URL allowlist.
-- `request_id`, when present, must be a non-empty string no longer than 128 characters. Reusing a request ID with different content must be rejected with `409 Conflict`.
+- `input_type` must be exactly `text` or `image`. Voice and other media types are not supported by this endpoint version.
+- For `text`, `content` must be a non-empty string after trimming whitespace and must not exceed 10,000 characters.
+- For `image`, `content` must be a plain object containing exactly `mime_type` and `data`; both fields are required.
+- An image request contains exactly one image. Arrays, URLs, multipart data, and multiple-image fields are rejected.
+- `mime_type` must be exactly `image/png`, `image/jpeg`, or `image/webp`.
+- `data` must be a non-empty canonical Base64 string containing data only. Whitespace, URL-safe Base64 variants, and `data:image/...;base64,` prefixes are rejected.
+- The Base64 string must not exceed 6,990,508 characters. The decoded image must not exceed 5,242,880 bytes (5 MiB).
+- The decoded signature must match `mime_type`: PNG starts with `89 50 4E 47 0D 0A 1A 0A`; JPEG starts with `FF D8 FF`; WebP contains `RIFF` at bytes 0–3 and `WEBP` at bytes 8–11.
+- The client-supplied MIME type is never trusted without signature validation.
+- `request_id`, when present, must be a non-empty string no longer than 128 characters.
 - `language`, when present, must be a valid BCP 47 language tag.
 - `metadata`, when present, must be a JSON object. It must not contain passwords, OTPs, API keys, access tokens, or full bank account numbers.
 - Requests exceeding the configured body or media-size limit must be rejected with `413 Payload Too Large` before model processing.
 - Unknown top-level fields should be rejected with `400 Bad Request` to catch client integration mistakes.
+- Unknown image-content fields must be rejected with `400 Bad Request`.
+- Public clients cannot select an OCR provider, vision model, analysis provider, route, backend, or mock mode. Unknown selection fields are rejected.
+- Validated images are converted to extracted text before the existing model router, strict analysis-output validator, and deterministic scoring engine run. The Base64 image must not be sent to the analysis model router.
+- If image preprocessing succeeds but produces no usable text, return `422` with error code `IMAGE_TEXT_EXTRACTION_FAILED`.
 - A successful response must include every required response field, even when `indicators` or `recommended_actions` is empty.
 - `api_version` must be exactly `"v1"`.
 - `taxonomy_version` and `scoring_version` must be non-empty version strings identifying the exact configurations used for the analysis.
@@ -138,11 +171,14 @@ Every item in `indicators` contains all of the following fields:
 - For taxonomy version `1.0.0`, supported category codes are `bank_impersonation`, `government_impersonation`, `account_takeover`, `investment_scam`, `romance_scam`, `shopping_scam`, `parcel_delivery_scam`, `job_scam`, `loan_scam`, `tech_support_scam`, `prize_lottery_scam`, `extortion_scam`, `unclear`, and `other`.
 - Categories must be assigned from validated patterns and indicators, but they must not directly add to, multiply, override, or otherwise determine `risk_score`.
 - `risk_score` must be an integer between `0` and `100`; `confidence` must be a number between `0.0` and `1.0`.
-- `needs_human_review` must be a boolean. It must be `true` when `confidence` is below the configured review threshold, evidence conflicts materially, or input quality prevents reliable analysis. It may also be `true` under additional documented review policies.
+- `needs_human_review` must be a boolean. The confidence review threshold is `0.65`; invalid confidence or confidence below this threshold requires review.
+- `needs_human_review` must also be `true` for unsupported indicators, malformed supported indicators, taxonomy severity mismatch, `CONFLICTING_EVIDENCE`, `LOW_IMAGE_QUALITY`, or `LOW_AUDIO_QUALITY`.
+- The presence of `INSUFFICIENT_CONTEXT` always requires human review regardless of `risk_score` or valid model confidence.
+- `POSSIBLE_PROMPT_INJECTION` alone does not require human review unless another review condition is present.
 - `processing_time_ms` must be a non-negative integer measuring server-side workflow processing time from workflow acceptance through response finalization. It must not represent client network latency.
 - Each indicator must contain `code`, `title`, `severity`, `evidence`, and `explanation`.
 - Indicator `code` values must be supported by `taxonomy_version`; duplicate indicator codes count only once for scoring, subject to the taxonomy's specificity and overlap rules.
-- Quality and uncertainty indicators may affect `confidence` and `needs_human_review`, but must not directly increase `risk_score`. Security-only indicators must not change `risk_score`.
+- Quality and uncertainty indicators may affect `confidence` and `needs_human_review`, but must not directly increase `risk_score`. Security-only indicators must not change `risk_score`; `POSSIBLE_PROMPT_INJECTION` remains non-scoring and does not force review by itself.
 - A successful response must expose only concise, evidence-grounded explanations. It must never expose chain-of-thought, hidden reasoning, system prompts, or internal analysis traces.
 
 ## Versioning and Compatibility
@@ -159,15 +195,12 @@ Every item in `indicators` contains all of the following fields:
 | --- | --- |
 | `200 OK` | Analysis completed successfully. |
 | `400 Bad Request` | Invalid JSON, missing fields, unsupported values, malformed media, or another validation failure. |
-| `401 Unauthorized` | Authentication is missing or invalid. |
-| `403 Forbidden` | The authenticated caller is not permitted to use the endpoint. |
-| `409 Conflict` | A reused `request_id` conflicts with an earlier request. |
 | `413 Payload Too Large` | The request body or submitted media exceeds the configured limit. |
-| `415 Unsupported Media Type` | The request or submitted media type is not supported. |
-| `422 Unprocessable Content` | The request is structurally valid, but submitted content cannot be decoded or a parseable model result fails strict schema or taxonomy validation. |
-| `429 Too Many Requests` | The caller exceeded an API-boundary rate limit. A downstream provider rate limit is normalized to `503` by the V2 workflow. |
+| `422 Unprocessable Content` | No usable text could be extracted from a validated image, or a parseable analysis result fails strict schema or taxonomy validation. |
 | `500 Internal Server Error` | An unexpected internal error occurred. No implementation details are returned. |
-| `503 Service Unavailable` | The workflow or downstream AI provider is temporarily unavailable. Architecture V2 normalizes provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures to this status. |
+| `503 Service Unavailable` | Image preprocessing, the workflow, or a downstream AI provider is temporarily unavailable. Architecture V2 normalizes provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures to this status. |
+
+Authentication, authorization, and API-boundary rate limiting may be enforced by a reverse proxy or API gateway before the workflow runs. Those infrastructure responses are outside this workflow response contract.
 
 ## Error Response Format
 
@@ -191,7 +224,7 @@ All non-success responses return the same JSON shape:
     "details": [
       {
         "field": "input_type",
-        "issue": "Must be one of: text, image, voice."
+        "issue": "Must be one of: text, image."
       }
     ]
   },
@@ -202,6 +235,13 @@ All non-success responses return the same JSON shape:
 
 Error messages must never include stack traces, provider responses, prompts, credentials, environment variables, or other internal implementation details.
 
+Image-specific stable error codes include:
+
+- `VALIDATION_ERROR` for malformed Base64, unsupported image MIME type, unknown image fields, or a MIME/signature mismatch.
+- `CONTENT_TOO_LARGE` when encoded or decoded image data exceeds the configured limit.
+- `IMAGE_TEXT_EXTRACTION_FAILED` when a valid image contains no usable extracted text.
+- `IMAGE_PREPROCESSOR_UNAVAILABLE` when the image extraction provider cannot complete the request.
+
 ## Security Considerations
 
 - Never expose API keys, access tokens, provider credentials, or n8n credentials in requests, responses, client-side code, error messages, or workflow output.
@@ -210,10 +250,12 @@ Error messages must never include stack traces, provider responses, prompts, cre
 - Never log passwords.
 - Never log OTPs or other one-time authentication codes.
 - Never log full bank account numbers. If an identifier is operationally necessary, redact it and retain only the minimum safe portion, such as the last four digits.
-- Treat `content`, `metadata`, and extracted evidence as untrusted and potentially sensitive. Apply input-size limits and do not execute or follow instructions embedded in submitted content.
+- Treat `content`, image pixels, visible image text, metadata, extracted text, and extracted evidence as untrusted and potentially sensitive. Apply input-size limits and do not execute or follow instructions embedded in submitted content.
 - Redact passwords, OTPs, API keys, tokens, and full bank account numbers before logging, tracing, or storing data.
 - Use HTTPS for all client, n8n, storage, and AI-provider connections.
 - Store secrets only in an approved secrets manager or n8n credential store, and grant the workflow the minimum permissions required.
 - Apply authentication, authorization, rate limiting, and request-size limits at the API boundary.
-- Limit data retention and access to analysis records. Avoid storing raw image or voice content unless required and explicitly covered by the deployment's privacy policy.
+- Never include Base64 image data, raw image bytes, image-provider requests, image-provider responses, extraction confidence, or image-provider diagnostics in public responses.
+- n8n execution history may retain inputs and intermediate node data, including Base64 images and extracted text. Production deployments should minimize or disable successful-execution retention where operationally possible, restrict editor and execution access, and configure aggressive pruning consistent with the privacy policy.
+- Limit data retention and access to analysis records. Avoid storing raw image content unless required and explicitly covered by the deployment's privacy policy.
 - Do not use submitted content for model training unless the user has explicitly consented and the deployment policy permits it.

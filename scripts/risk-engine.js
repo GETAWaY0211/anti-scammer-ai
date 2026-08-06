@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'scoring-v1.json');
+const REVIEW_CONFIDENCE_THRESHOLD = 0.65;
 
 function loadScoringConfig(configPath = DEFAULT_CONFIG_PATH) {
   return JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -198,7 +199,6 @@ function deriveHumanReview({
   unsupportedFound,
   malformedSupportedIndicatorFound,
   severityMismatchFound,
-  score,
   config
 }) {
   const review = config.human_review;
@@ -211,7 +211,10 @@ function deriveHumanReview({
   if (!confidenceIsValid && review.invalid_confidence) {
     return true;
   }
-  if (confidenceIsValid && confidence < review.confidence_below) {
+  const confidenceThreshold = Number.isFinite(review.confidence_below)
+    ? review.confidence_below
+    : REVIEW_CONFIDENCE_THRESHOLD;
+  if (confidenceIsValid && confidence < confidenceThreshold) {
     return true;
   }
   if (unsupportedFound && review.unsupported_indicator) {
@@ -224,9 +227,6 @@ function deriveHumanReview({
     return true;
   }
   if (activeCodes.has('CONFLICTING_EVIDENCE') && review.conflicting_evidence) {
-    return true;
-  }
-  if (activeCodes.has('INSUFFICIENT_CONTEXT') && score >= review.insufficient_context_min_score) {
     return true;
   }
   if (review.quality_indicator_codes.some((code) => activeCodes.has(code))) {
@@ -269,7 +269,6 @@ function scoreAnalysis(input, config = DEFAULT_CONFIG) {
     unsupportedFound: collected.unsupportedFound,
     malformedSupportedIndicatorFound: collected.malformedSupportedIndicatorFound,
     severityMismatchFound: collected.severityMismatchFound,
-    score: cappedScore,
     config
   });
 
