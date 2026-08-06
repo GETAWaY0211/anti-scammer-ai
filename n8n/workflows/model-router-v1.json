@@ -1,0 +1,364 @@
+{
+  "name": "Model Router V1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "8714ffe3-b777-4841-be79-bade96ed2b44",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -820,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ACTIVE_PROVIDER = 'gemini';\nconst ROUTING_VERSION = '1.0.0';\nfunction isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction failure(context, category) {\n  const requestId = isRecord(context) && typeof context.request_id === 'string' ? context.request_id : null;\n  return {\n    ok: false,\n    router_ready: false,\n    provider_output_parsed: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The analysis could not be completed.', details: [] },\n      request_id: requestId,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      provider: {\n        provider_name: null,\n        provider_http_status: null,\n        provider_error_category: category,\n        failure_stage: 'model_router'\n      },\n      router: {\n        selected_provider: ACTIVE_PROVIDER,\n        routing_version: ROUTING_VERSION\n      }\n    }\n  };\n}\ntry {\n  const raw = $input.first().json;\n  const context = isRecord(raw) ? raw.context : null;\n  if (!isRecord(context) || typeof context.content !== 'string' || !context.content.trim()) {\n    return [{ json: failure(context, 'invalid_router_input') }];\n  }\n  if (!['gemini', 'mock'].includes(ACTIVE_PROVIDER)) {\n    return [{ json: failure(context, 'unsupported_active_provider') }];\n  }\n  return [{ json: {\n    ok: true,\n    router_ready: true,\n    selected_provider: ACTIVE_PROVIDER,\n    context: JSON.parse(JSON.stringify(context)),\n    internal_diagnostics: {\n      router: { selected_provider: ACTIVE_PROVIDER, routing_version: ROUTING_VERSION }\n    }\n  } }];\n} catch {\n  return [{ json: failure(null, 'router_validation_failure') }];\n}"
+      },
+      "id": "4a558dba-22e7-400a-aa5f-096270f41989",
+      "name": "Validate Router Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cd667eac-317d-45f9-89b7-90918d4fbbe8",
+              "leftValue": "={{ $json.router_ready }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2f478d01-c9c2-4f32-b49d-6a6dd4373664",
+      "name": "Router Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -380,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f175dabe-a77f-4c59-8078-ba4c3d0ba692",
+              "leftValue": "={{ $json.selected_provider === 'gemini' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "17d1f421-6762-4d21-a419-2ae4cf1997ea",
+      "name": "Use Gemini?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Provider Gemini V1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "0d5ff4a7-c881-47a3-b437-0245b90a8c64",
+      "name": "Execute Provider Gemini V1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        60,
+        -260
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "After import, select Provider Gemini V1. This node waits for one normalized result per input item."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "046a51ed-e5d7-40ed-a094-7df767a51161",
+              "leftValue": "={{ $json.selected_provider === 'mock' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "31b9159c-3024-4c3a-8881-18db9df29eed",
+      "name": "Use Mock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        60,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Provider Mock V1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "5151dac9-8583-457d-a5ed-6fca7516b0e7",
+      "name": "Execute Provider Mock V1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        280,
+        -80
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "After import, select Provider Mock V1. This node waits for one normalized result per input item."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst context = data && data.context;\nconst selectedProvider = data && typeof data.selected_provider === 'string' ? data.selected_provider : null;\nreturn [{ json: {\n  ok: false,\n  provider_output_parsed: false,\n  status_code: 500,\n  public_response: {\n    error: { code: 'INTERNAL_ERROR', message: 'The analysis could not be completed.', details: [] },\n    request_id: context && typeof context.request_id === 'string' ? context.request_id : null,\n    timestamp: new Date().toISOString()\n  },\n  internal_diagnostics: {\n    provider: {\n      provider_name: null,\n      provider_http_status: null,\n      provider_error_category: 'unsupported_active_provider',\n      failure_stage: 'model_router'\n    },\n    router: { selected_provider: selectedProvider, routing_version: '1.0.0' }\n  }\n} }];"
+      },
+      "id": "b09a98d7-52ba-48f9-b140-4b2357cecaa5",
+      "name": "Build Unsupported Provider Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ROUTING_VERSION = '1.0.0';\nfunction isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction safeProvider(value, selectedProvider, category, stage) {\n  const provider = isRecord(value) && isRecord(value.provider) ? value.provider : {};\n  const rawStatus = Number(provider.provider_http_status);\n  return {\n    provider_name: provider.provider_name === null\n      ? null\n      : typeof provider.provider_name === 'string'\n        ? provider.provider_name\n        : selectedProvider,\n    provider_http_status: Number.isInteger(rawStatus) ? rawStatus : null,\n    provider_error_category: typeof provider.provider_error_category === 'string' ? provider.provider_error_category : category,\n    failure_stage: typeof provider.failure_stage === 'string' ? provider.failure_stage : stage\n  };\n}\nfunction safeFailure(statusCode, requestId, selectedProvider, diagnostics, code) {\n  const isProviderFailure = statusCode === 503;\n  return {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: isProviderFailure ? 503 : 500,\n    public_response: {\n      error: {\n        code: isProviderFailure ? code : 'INTERNAL_ERROR',\n        message: isProviderFailure\n          ? 'The analysis service is temporarily unavailable.'\n          : 'The analysis could not be completed.',\n        details: []\n      },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      provider: safeProvider(\n        diagnostics,\n        selectedProvider,\n        isProviderFailure ? 'unknown_provider_failure' : 'invalid_provider_result',\n        isProviderFailure ? 'provider_response' : 'model_router'\n      ),\n      router: { selected_provider: selectedProvider, routing_version: ROUTING_VERSION }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const routingInput = JSON.parse(JSON.stringify($('Validate Router Input').item.json));\n  const routingDiagnostics = isRecord(routingInput.internal_diagnostics) && isRecord(routingInput.internal_diagnostics.router)\n    ? routingInput.internal_diagnostics.router\n    : {};\n  const selectedProvider = typeof routingInput.selected_provider === 'string'\n    ? routingInput.selected_provider\n    : typeof routingDiagnostics.selected_provider === 'string'\n      ? routingDiagnostics.selected_provider\n      : null;\n  const context = isRecord(raw.context) ? raw.context : routingInput.context;\n  const requestId = context && context.request_id;\n\n  if (raw.ok === true && raw.provider_output_parsed === true && isRecord(context) && isRecord(raw.analysis_output)) {\n    return [{ json: {\n      ok: true,\n      provider_output_parsed: true,\n      context,\n      analysis_output: raw.analysis_output,\n      internal_diagnostics: {\n        provider: safeProvider(raw.internal_diagnostics, selectedProvider, null, null),\n        router: { selected_provider: selectedProvider, routing_version: ROUTING_VERSION }\n      }\n    } }];\n  }\n\n  if (raw.ok === false && raw.provider_output_parsed === false && (raw.status_code === 503 || raw.status_code === 500)) {\n    const allowedCodes = new Set(['ANALYSIS_PROVIDER_ERROR', 'ANALYSIS_SERVICE_UNAVAILABLE', 'ANALYSIS_TIMEOUT']);\n    const rawCode = isRecord(raw.public_response) && isRecord(raw.public_response.error)\n      ? raw.public_response.error.code\n      : null;\n    const code = raw.status_code === 503 && allowedCodes.has(rawCode)\n      ? rawCode\n      : 'ANALYSIS_SERVICE_UNAVAILABLE';\n    return [{ json: safeFailure(raw.status_code, requestId, selectedProvider, raw.internal_diagnostics, code) }];\n  }\n\n  return [{ json: safeFailure(500, requestId, selectedProvider, raw.internal_diagnostics, 'INTERNAL_ERROR') }];\n} catch {\n  return [{ json: safeFailure(500, null, null, null, 'INTERNAL_ERROR') }];\n}"
+      },
+      "id": "80d233b4-1870-4856-9c6a-01900a9c27b1",
+      "name": "Normalize Router Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        -80
+      ],
+      "notesInFlow": true,
+      "notes": "Returns exactly one normalized provider result and adds non-public routing diagnostics. No fallback or retry is performed."
+    },
+    {
+      "parameters": {
+        "content": "## Model Router V1\nArchitecture V2 Phase 3 deterministic router. ACTIVE_PROVIDER is trusted workflow configuration and defaults to 'gemini'. Allowed values are 'gemini' and 'mock'. Exactly one provider executes per request; there is no retry or fallback. Select both provider workflows after import.",
+        "height": 240,
+        "width": 700,
+        "color": 5
+      },
+      "id": "9c61d5da-8a69-4746-8487-1ea212b27f0a",
+      "name": "Model Router Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        -500
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Router Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Router Input": {
+      "main": [
+        [
+          {
+            "node": "Router Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Use Gemini?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Router Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Gemini?": {
+      "main": [
+        [
+          {
+            "node": "Execute Provider Gemini V1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use Mock?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Provider Gemini V1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Router Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Mock?": {
+      "main": [
+        [
+          {
+            "node": "Execute Provider Mock V1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Unsupported Provider Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Provider Mock V1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Router Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Unsupported Provider Failure": {
+      "main": [
+        [
+          {
+            "node": "Normalize Router Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a3fe762e-b907-4a58-b3ac-104f039c81f1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

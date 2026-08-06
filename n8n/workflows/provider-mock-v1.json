@@ -1,0 +1,172 @@
+{
+  "name": "Provider Mock V1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c63bc762-96e7-48cb-b972-c3d76022dcb4",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -600,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction failure(requestId) {\n  return {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The analysis could not be completed.', details: [] },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      provider: {\n        provider_name: 'mock',\n        provider_http_status: null,\n        provider_error_category: 'invalid_adapter_input',\n        failure_stage: 'adapter_input'\n      }\n    }\n  };\n}\ntry {\n  const raw = $input.first().json;\n  const context = isRecord(raw) ? raw.context : null;\n  if (!isRecord(context) || typeof context.content !== 'string' || !context.content.trim()) {\n    return [{ json: failure(context && context.request_id) }];\n  }\n  return [{ json: { ok: true, context: JSON.parse(JSON.stringify(context)) } }];\n} catch {\n  return [{ json: failure(null) }];\n}"
+      },
+      "id": "d92041c4-ecb9-486c-b99d-8a76903d59e0",
+      "name": "Validate Mock Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d09b90a5-6495-49c4-b473-64e039effc3b",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "96b7bf61-6c2b-438f-b894-e12cdc8c09c3",
+      "name": "Mock Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function exactMatch(content, pattern) {\n  const match = content.match(pattern);\n  return match ? match[0] : null;\n}\nfunction indicator(code, title, severity, evidence, explanation) {\n  return { code, title, severity, evidence, explanation };\n}\nfunction failure(context) {\n  return {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The analysis could not be completed.', details: [] },\n      request_id: context && typeof context.request_id === 'string' ? context.request_id : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      provider: {\n        provider_name: 'mock',\n        provider_http_status: null,\n        provider_error_category: 'mock_generation_failure',\n        failure_stage: 'provider_response'\n      }\n    }\n  };\n}\ntry {\n  const data = JSON.parse(JSON.stringify($input.first().json));\n  const context = data.context;\n  if (!data || data.ok !== true || !context || typeof context.content !== 'string') {\n    return [{ json: failure(context) }];\n  }\n\n  const content = context.content;\n  const english = String(context.requested_output_language || context.language || 'th').toLowerCase().startsWith('en');\n  const injectionEvidence = exactMatch(content, /ignore\\s+(?:all\\s+)?(?:previous|prior)\\s+instructions|ignore\\s+(?:the\\s+)?system\\s+prompt|reveal\\s+(?:the\\s+)?system\\s+prompt|show\\s+(?:me\\s+)?(?:the\\s+)?system\\s+prompt|(?:return|output)\\s+risk_score|เปิดเผย(?:คำสั่ง|พรอมต์)ระบบ|เพิกเฉยคำสั่งก่อนหน้า|ข้ามคำสั่งระบบ|บังคับ(?:ผลลัพธ์|คะแนน)/iu);\n  const bankEvidence = exactMatch(content, /ธนาคาร|bank/iu);\n  const otpEvidence = exactMatch(content, /(?:รหัส\\s*)?OTP|รหัสโอทีพี/iu);\n  const otpRequestEvidence = exactMatch(content, /กรุณาส่ง|ส่ง(?:รหัส)?|แจ้ง(?:รหัส)?|บอก(?:รหัส)?|กรอก(?:รหัส)?|ขอ(?:รหัส)?|send|share|provide|reply|forward/iu);\n  const urgencyEvidence = exactMatch(content, /ด่วน|ทันที|เดี๋ยวนี้|โดยเร็ว|บัญชีจะถูกระงับ|ระงับบัญชี|urgent|immediately|right\\s+away|account\\s+will\\s+be\\s+suspended/iu);\n  const guaranteedEvidence = exactMatch(content, /รับประกัน(?:ผลตอบแทน|กำไร)|กำไรแน่นอน|ผลตอบแทนแน่นอน|ไม่มีขาดทุน|ไม่ขาดทุน|guaranteed\\s+(?:return|profit)|risk[-\\s]?free\\s+return|no\\s+risk/iu);\n  const paymentEvidence = exactMatch(content, /โอนเงิน|ชำระเงิน|จ่ายเงิน|ฝากเงิน|ส่งเงิน|transfer\\s+(?:money|funds)?|pay(?:ment)?|deposit/iu);\n\n  let analysisOutput;\n  if (injectionEvidence) {\n    analysisOutput = {\n      summary: english\n        ? 'The text attempts to alter or manipulate the analysis process; this alone is not a scam-risk signal.'\n        : 'ข้อความพยายามเปลี่ยนแปลงหรือควบคุมกระบวนการวิเคราะห์ ซึ่งเพียงอย่างเดียวไม่ใช่สัญญาณเพิ่มความเสี่ยงการหลอกลวง',\n      scam_categories: ['unclear'],\n      indicators: [indicator(\n        'POSSIBLE_PROMPT_INJECTION',\n        english ? 'Possible prompt injection' : 'ความพยายามแทรกแซงคำสั่งวิเคราะห์',\n        'high',\n        injectionEvidence,\n        english\n          ? 'The submitted text meaningfully attempts to override, reveal, or force the analysis process.'\n          : 'ข้อความที่ส่งมาพยายามเปลี่ยน เปิดเผย หรือบังคับกระบวนการวิเคราะห์อย่างมีนัยสำคัญ'\n      )],\n      recommended_actions: [],\n      confidence: 0.9\n    };\n  } else if (bankEvidence && otpEvidence && otpRequestEvidence) {\n    const indicators = [\n      indicator(\n        'OTP_REQUEST',\n        english ? 'OTP request' : 'การขอรหัส OTP',\n        'critical',\n        otpEvidence,\n        english ? 'The message asks the recipient to provide an OTP.' : 'ข้อความขอให้ผู้รับส่งหรือเปิดเผยรหัส OTP'\n      ),\n      indicator(\n        'BANK_IMPERSONATION',\n        english ? 'Bank impersonation pattern' : 'รูปแบบแอบอ้างธนาคาร',\n        'high',\n        bankEvidence,\n        english ? 'The claimed bank context is combined with a request for an authentication secret.' : 'การกล่าวอ้างถึงธนาคารเกิดร่วมกับการขอข้อมูลยืนยันตัวตนที่เป็นความลับ'\n      )\n    ];\n    if (urgencyEvidence) {\n      indicators.push(indicator(\n        'URGENCY_PRESSURE',\n        english ? 'Urgency pressure' : 'การเร่งรัดให้ดำเนินการ',\n        'high',\n        urgencyEvidence,\n        english ? 'The message pressures the recipient to act immediately.' : 'ข้อความเร่งรัดให้ผู้รับดำเนินการทันที'\n      ));\n    }\n    analysisOutput = {\n      summary: english\n        ? 'The message combines a claimed bank context with a request for an OTP.'\n        : 'ข้อความกล่าวอ้างบริบทธนาคารและขอให้ส่งรหัส OTP',\n      scam_categories: ['bank_impersonation', 'account_takeover'],\n      indicators,\n      recommended_actions: english\n        ? ['Do not share the OTP and verify the message through the bank’s official channel.']\n        : ['อย่าส่งรหัส OTP และตรวจสอบผ่านช่องทางทางการของธนาคารโดยตรง'],\n      confidence: 0.95\n    };\n  } else if (guaranteedEvidence && paymentEvidence) {\n    analysisOutput = {\n      summary: english\n        ? 'The message promises guaranteed investment returns and requests a payment.'\n        : 'ข้อความรับประกันผลตอบแทนจากการลงทุนและขอให้โอนหรือจ่ายเงิน',\n      scam_categories: ['investment_scam'],\n      indicators: [\n        indicator(\n          'GUARANTEED_RETURN',\n          english ? 'Guaranteed return claim' : 'การรับประกันผลตอบแทน',\n          'high',\n          guaranteedEvidence,\n          english ? 'The text explicitly promises a guaranteed or risk-free return.' : 'ข้อความระบุอย่างชัดเจนว่าจะให้ผลตอบแทนแน่นอนหรือไม่มีความเสี่ยง'\n        ),\n        indicator(\n          'PAYMENT_REQUEST',\n          english ? 'Payment request' : 'การขอให้จ่ายเงิน',\n          'medium',\n          paymentEvidence,\n          english ? 'The text asks the recipient to transfer or pay money.' : 'ข้อความขอให้ผู้รับโอนหรือจ่ายเงิน'\n        )\n      ],\n      recommended_actions: english\n        ? ['Do not transfer money until the investment and recipient are independently verified.']\n        : ['อย่าโอนเงินจนกว่าจะตรวจสอบการลงทุนและผู้รับเงินผ่านแหล่งข้อมูลอิสระ'],\n      confidence: 0.9\n    };\n  } else {\n    analysisOutput = {\n      summary: english\n        ? 'No supported scam indicator was established from the submitted text.'\n        : 'ไม่พบตัวบ่งชี้การหลอกลวงที่รองรับจากข้อความที่ส่งมา',\n      scam_categories: ['unclear'],\n      indicators: [],\n      recommended_actions: [],\n      confidence: 0.75\n    };\n  }\n\n  return [{ json: {\n    ok: true,\n    provider_output_parsed: true,\n    context,\n    analysis_output: analysisOutput,\n    internal_diagnostics: {\n      provider: {\n        provider_name: 'mock',\n        provider_http_status: null,\n        provider_error_category: null,\n        failure_stage: null\n      }\n    }\n  } }];\n} catch {\n  return [{ json: failure(null) }];\n}"
+      },
+      "id": "52041d89-db69-4348-9e40-acd591804d64",
+      "name": "Generate Deterministic Mock Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction diagnostics(value, category, stage) {\n  const provider = isRecord(value) && isRecord(value.provider) ? value.provider : {};\n  return {\n    provider: {\n      provider_name: 'mock',\n      provider_http_status: null,\n      provider_error_category: typeof provider.provider_error_category === 'string' ? provider.provider_error_category : category,\n      failure_stage: typeof provider.failure_stage === 'string' ? provider.failure_stage : stage\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  if (raw.ok === true && raw.provider_output_parsed === true && isRecord(raw.context) && isRecord(raw.analysis_output)) {\n    return [{ json: {\n      ok: true,\n      provider_output_parsed: true,\n      context: raw.context,\n      analysis_output: raw.analysis_output,\n      internal_diagnostics: diagnostics(raw.internal_diagnostics, null, null)\n    } }];\n  }\n  const requestId = isRecord(raw.public_response) && typeof raw.public_response.request_id === 'string'\n    ? raw.public_response.request_id\n    : isRecord(raw.context) && typeof raw.context.request_id === 'string'\n      ? raw.context.request_id\n      : null;\n  return [{ json: {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The analysis could not be completed.', details: [] },\n      request_id: requestId,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: diagnostics(raw.internal_diagnostics, 'mock_adapter_failure', 'adapter_workflow')\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    provider_output_parsed: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The analysis could not be completed.', details: [] },\n      request_id: null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: diagnostics(null, 'mock_result_normalization_failure', 'adapter_workflow')\n  } }];\n}"
+      },
+      "id": "45ecc36f-fbb1-4c8b-8492-084c0b1f4f40",
+      "name": "Return Mock Adapter Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -80
+      ],
+      "notesInFlow": true,
+      "notes": "Returns exactly one normalized provider-adapter result. This workflow never calculates risk."
+    },
+    {
+      "parameters": {
+        "content": "## Provider Mock V1\nArchitecture V2 Phase 3 deterministic development provider. It uses only submitted content, performs no HTTP request, uses no credential, returns the provider-adapter contract, and never calculates risk_score or risk_level.",
+        "height": 220,
+        "width": 580,
+        "color": 6
+      },
+      "id": "d301a272-536a-4fe2-baef-f48dc5f486cd",
+      "name": "Mock Provider Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        -420
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Mock Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Mock Input": {
+      "main": [
+        [
+          {
+            "node": "Mock Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Generate Deterministic Mock Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Mock Adapter Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Deterministic Mock Output": {
+      "main": [
+        [
+          {
+            "node": "Return Mock Adapter Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0f326997-c701-4155-8acf-53264c3f057d",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

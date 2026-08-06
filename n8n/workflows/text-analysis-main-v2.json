@@ -293,7 +293,7 @@
           "__rl": true,
           "value": "",
           "mode": "list",
-          "cachedResultName": "Provider Gemini V1"
+          "cachedResultName": "Model Router V1"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -309,7 +309,7 @@
         }
       },
       "id": "12c71e19-cfcd-482c-9ab2-6dd93cb8cf2f",
-      "name": "Execute Gemini Provider Adapter",
+      "name": "Execute Model Router V1",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
@@ -318,7 +318,7 @@
       ],
       "onError": "continueRegularOutput",
       "notesInFlow": true,
-      "notes": "After import, select Provider Gemini V1. This node waits for one normalized adapter result per input item."
+      "notes": "After import, select Model Router V1. This node waits for one normalized result per input item."
     },
     {
       "parameters": {
@@ -369,13 +369,13 @@
     },
     {
       "parameters": {
-        "content": "## Architecture V2 — Phase 2\nThe main workflow has one public Respond to Webhook node. Provider-specific request construction, transport, response-envelope parsing, and diagnostics live in Provider Gemini V1. The main workflow remains provider-neutral after the adapter boundary: strict LLM validation and deterministic scoring are unchanged. Provider routing, fallback providers, and database lookups remain deferred.",
+        "content": "## Architecture V2 — Phase 3\nThe main workflow invokes one deterministic model router and remains provider-neutral. Trusted routing configuration lives only in Model Router V1. Strict LLM validation, deterministic scoring, public response construction, Finalize Response, and the single Respond node are unchanged. Clients cannot select a provider or model.",
         "height": 250,
         "width": 700,
         "color": 5
       },
       "id": "a778b441-45c5-4fb1-8af5-fee6e92a4210",
-      "name": "Architecture V2 Phase 2 Notes",
+      "name": "Architecture V2 Phase 3 Notes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -441,7 +441,7 @@
       "main": [
         [
           {
-            "node": "Execute Gemini Provider Adapter",
+            "node": "Execute Model Router V1",
             "type": "main",
             "index": 0
           }
@@ -449,17 +449,6 @@
         [
           {
             "node": "Finalize Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Execute Gemini Provider Adapter": {
-      "main": [
-        [
-          {
-            "node": "Validate Provider Adapter Result",
             "type": "main",
             "index": 0
           }
@@ -592,13 +581,24 @@
           }
         ]
       ]
+    },
+    "Execute Model Router V1": {
+      "main": [
+        [
+          {
+            "node": "Validate Provider Adapter Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "ef26d73c-e000-4177-8693-21c6e2aaaced",
+  "versionId": "81939010-e08f-4119-8041-0842bed2e957",
   "meta": {
     "templateCredsSetupCompleted": false
   },

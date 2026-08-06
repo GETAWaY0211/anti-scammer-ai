@@ -1,23 +1,31 @@
-# Anti-Scammer AI n8n Mock Workflow
+# Anti-Scammer AI n8n workflows
 
-This directory contains the first executable text-only MVP workflow. It exercises the public API boundary, deterministic mock analysis, strict model-output validation, deterministic risk scoring, safe response construction, and HTTP error branches without calling Gemini, GPT, or another external AI provider.
+This directory contains the text-only MVP workflows, including the public API orchestration, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
-## Architecture V2 — Phase 2
+## Architecture V2 — Phase 3
 
-`n8n/workflows/text-analysis-main-v2.json` is the public orchestration workflow. Phase 2 preserves the existing request validation, strict model-output validation, deterministic scoring, and public response contract, but moves all Gemini-specific request and response handling into `n8n/workflows/provider-gemini-v1.json`.
+`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Phase 3 inserts the deterministic `n8n/workflows/model-router-v1.json` boundary between the main workflow and the provider adapters, while preserving the public request and response contracts, strict LLM-output validation, and deterministic scoring.
 
 The runtime path is:
 
 ```text
-Webhook -> Validate Request -> Prepare Input -> Execute Gemini Provider Adapter
+Webhook -> Validate Request -> Prepare Input -> Execute Model Router V1
         -> Validate Provider Adapter Result -> Validate LLM Output
         -> Score Risk Deterministically -> Build Public Response
         -> Finalize Response -> Respond
+
+Model Router V1
+  -> Provider Gemini V1
+  -> Provider Mock V1
 ```
 
-The main workflow owns the public API boundary, request validation, adapter-result validation, authoritative LLM-output validation, deterministic scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. **Provider Gemini V1** owns the model constant, endpoint, system instruction, minimal provider-facing schema, `generateContent` request, HTTP transport, Gemini envelope parsing, safe provider error classification, and internal provider diagnostics. The adapter contains no Respond to Webhook node and removes raw request/response data before returning.
+The main workflow owns the public API boundary, request validation, provider-result validation, authoritative LLM-output validation, deterministic scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no provider-selection logic or provider-specific request handling.
 
-The adapter receives one item containing `context` and returns one normalized item. A successful result has `ok: true`, `provider_output_parsed: true`, `analysis_output`, retained internal `context`, and safe `internal_diagnostics`. A failure has `ok: false`, `provider_output_parsed: false`, a normalized `status_code`, a safe `public_response`, and non-public diagnostics. The main workflow never publishes the diagnostics.
+**Model Router V1** validates the internal context, reads the trusted `ACTIVE_PROVIDER` constant, executes exactly one provider, waits for one normalized result, and adds non-public routing diagnostics. The allowed values are `gemini` and `mock`; the default is `gemini`. Routing is deterministic and has no retry, randomization, health check, or automatic fallback. Public requests cannot select a provider or model, and fields such as `provider`, `model`, `route`, `backend`, and `use_mock` remain invalid request fields.
+
+**Provider Gemini V1** remains unchanged and owns all Gemini-specific model, endpoint, credential, request, transport, and response-envelope behavior. **Provider Mock V1** is a deterministic development adapter with no HTTP Request node and no credentials. It recognizes bank-plus-OTP, guaranteed-return-plus-payment, prompt-injection, and ordinary-content cases; it emits only the five model-output fields and never calculates `risk_score` or `risk_level`.
+
+The router and both adapters receive one item containing `context` and return one normalized item. A successful result has `ok: true`, `provider_output_parsed: true`, `analysis_output`, retained internal `context`, and safe `internal_diagnostics`. A failure has `ok: false`, `provider_output_parsed: false`, a normalized `status_code`, a safe `public_response`, and non-public diagnostics. The main workflow never publishes provider or router diagnostics.
 
 The internal boundary is intentionally provider-neutral outside `internal_diagnostics`:
 
@@ -36,7 +44,7 @@ The internal boundary is intentionally provider-neutral outside `internal_diagno
 }
 ```
 
-On success, `analysis_output` contains only `summary`, `scam_categories`, `indicators`, `recommended_actions`, and `confidence`. On failure, the adapter returns `status_code` plus the standard safe `public_response` error envelope. In both cases it returns one item; provider request bodies, raw responses, credentials, prompts, model names, and endpoints do not cross back into the main workflow.
+On success, `analysis_output` contains only `summary`, `scam_categories`, `indicators`, `recommended_actions`, and `confidence`. Router diagnostics add `selected_provider` and `routing_version: "1.0.0"` only inside `internal_diagnostics`. On failure, the router returns `status_code` plus the standard safe `public_response` error envelope. Provider request bodies, raw responses, credentials, prompts, model names, endpoints, and routing diagnostics never enter the public response.
 
 The V2 public HTTP outcomes are:
 
@@ -47,17 +55,31 @@ The V2 public HTTP outcomes are:
 - `503` for provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
 - `500` for an unexpected internal workflow error
 
-`gemini-3.6-flash` remains the provider adapter default. The adapter continues to use the legacy `generateContent` REST endpoint with `generationConfig.responseFormat.text`, sends no deprecated sampling parameters, and supplies only the proven minimal provider-facing schema. **Validate LLM Output** in the main workflow remains authoritative for the complete project schema, taxonomy, uniqueness, evidence, redaction, and length rules.
+`gemini-3.6-flash` remains the Gemini adapter default. **Validate LLM Output** in the main workflow remains authoritative for both providers and continues to enforce the complete project schema, taxonomy, uniqueness, evidence grounding, redaction, and length rules before deterministic scoring.
 
 Import and configure the workflows in this order:
 
 1. Import `n8n/workflows/provider-gemini-v1.json`.
 2. Select the Gemini HTTP Header Auth credential on **Call Gemini API** in the provider workflow.
-3. Import `n8n/workflows/text-analysis-main-v2.json`.
-4. In **Execute Gemini Provider Adapter**, select the imported **Provider Gemini V1** workflow. The exported workflow intentionally contains no instance-specific workflow ID.
-5. Save both workflows, test through the main workflow, and activate only the main public workflow when ready.
+3. Import `n8n/workflows/provider-mock-v1.json`.
+4. Import `n8n/workflows/model-router-v1.json`.
+5. In **Execute Provider Gemini V1**, select the imported **Provider Gemini V1** workflow.
+6. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
+7. Import or update `n8n/workflows/text-analysis-main-v2.json`.
+8. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
+9. Save all workflows, test through the main workflow, and activate only the main public workflow when ready.
 
-`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available for provider-independent troubleshooting. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Model routing, fallback providers, database lookups, and threat-intelligence lookups remain out of scope for Phase 2.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. All three references must be selected after import.
+
+### Phase 3 manual routing tests
+
+Keep `const ACTIVE_PROVIDER = 'gemini';` in **Validate Router Input** to test the existing Gemini path. A valid scam request should return HTTP `200` with a deterministic score and no provider or router fields in the public payload.
+
+For development testing, temporarily change the trusted constant to `mock`. A bank/OTP message should deterministically emit `OTP_REQUEST` and `BANK_IMPERSONATION`, plus `URGENCY_PRESSURE` only when supported by text. Repeated identical requests should produce the same indicator set and score. Ordinary content should return HTTP `200` with low risk. Missing content and content longer than 10,000 characters must still return `400` and `413` before router execution.
+
+To test invalid router configuration, temporarily use an unsupported constant. The expected public result is HTTP `500` with `INTERNAL_ERROR` and no provider or router diagnostics. Restore `gemini` after testing. Do not treat these runtime checks as complete until they have been executed in the target n8n instance.
+
+`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available as the earlier standalone mock baseline. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Automatic fallback, retries, external second providers, database lookups, and threat-intelligence lookups remain out of scope for Phase 3.
 
 ## Workflow file
 
@@ -199,9 +221,9 @@ Open an execution in n8n and inspect the output of **Score Risk Deterministicall
 
 The **Respond 200** node sends only `public_response`. It does not expose `internal_diagnostics`, mock-only fields, or n8n execution data. Restrict access to the n8n editor and execution history because internal data may still contain submitted content.
 
-## Replacing the mock later
+## Standalone mock baseline
 
-The **Generate Mock LLM Output** Code node is the provider seam. It will later be replaced by a Gemini node that receives the system instruction from `prompts/text-analysis-system.md` and returns output conforming to `schemas/llm-analysis-output.schema.json`. The strict validation and deterministic scoring stages should remain between the model and the public response.
+`text-analysis-mock-v1.json` remains a standalone provider-independent baseline. Phase 3 development routing should use `provider-mock-v1.json` through **Model Router V1** instead. In both architectures, strict validation and deterministic scoring remain between model output and the public response.
 
 Repository contracts remain the source of truth:
 
