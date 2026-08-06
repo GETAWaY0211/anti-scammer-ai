@@ -2,6 +2,63 @@
 
 This directory contains the first executable text-only MVP workflow. It exercises the public API boundary, deterministic mock analysis, strict model-output validation, deterministic risk scoring, safe response construction, and HTTP error branches without calling Gemini, GPT, or another external AI provider.
 
+## Architecture V2 — Phase 2
+
+`n8n/workflows/text-analysis-main-v2.json` is the public orchestration workflow. Phase 2 preserves the existing request validation, strict model-output validation, deterministic scoring, and public response contract, but moves all Gemini-specific request and response handling into `n8n/workflows/provider-gemini-v1.json`.
+
+The runtime path is:
+
+```text
+Webhook -> Validate Request -> Prepare Input -> Execute Gemini Provider Adapter
+        -> Validate Provider Adapter Result -> Validate LLM Output
+        -> Score Risk Deterministically -> Build Public Response
+        -> Finalize Response -> Respond
+```
+
+The main workflow owns the public API boundary, request validation, adapter-result validation, authoritative LLM-output validation, deterministic scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. **Provider Gemini V1** owns the model constant, endpoint, system instruction, minimal provider-facing schema, `generateContent` request, HTTP transport, Gemini envelope parsing, safe provider error classification, and internal provider diagnostics. The adapter contains no Respond to Webhook node and removes raw request/response data before returning.
+
+The adapter receives one item containing `context` and returns one normalized item. A successful result has `ok: true`, `provider_output_parsed: true`, `analysis_output`, retained internal `context`, and safe `internal_diagnostics`. A failure has `ok: false`, `provider_output_parsed: false`, a normalized `status_code`, a safe `public_response`, and non-public diagnostics. The main workflow never publishes the diagnostics.
+
+The internal boundary is intentionally provider-neutral outside `internal_diagnostics`:
+
+```json
+{
+  "context": {
+    "request_id": "demo-001",
+    "analysis_id": "analysis-id",
+    "content": "untrusted submitted text",
+    "language": "th",
+    "requested_output_language": "th",
+    "metadata": {},
+    "accepted_at": "2026-01-01T00:00:00.000Z",
+    "accepted_epoch_ms": 1767225600000
+  }
+}
+```
+
+On success, `analysis_output` contains only `summary`, `scam_categories`, `indicators`, `recommended_actions`, and `confidence`. On failure, the adapter returns `status_code` plus the standard safe `public_response` error envelope. In both cases it returns one item; provider request bodies, raw responses, credentials, prompts, model names, and endpoints do not cross back into the main workflow.
+
+The V2 public HTTP outcomes are:
+
+- `200` for a successful analysis
+- `400` for an invalid request
+- `413` when text exceeds the configured maximum length
+- `422` when parseable model JSON fails strict schema or taxonomy validation
+- `503` for provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
+- `500` for an unexpected internal workflow error
+
+`gemini-3.6-flash` remains the provider adapter default. The adapter continues to use the legacy `generateContent` REST endpoint with `generationConfig.responseFormat.text`, sends no deprecated sampling parameters, and supplies only the proven minimal provider-facing schema. **Validate LLM Output** in the main workflow remains authoritative for the complete project schema, taxonomy, uniqueness, evidence, redaction, and length rules.
+
+Import and configure the workflows in this order:
+
+1. Import `n8n/workflows/provider-gemini-v1.json`.
+2. Select the Gemini HTTP Header Auth credential on **Call Gemini API** in the provider workflow.
+3. Import `n8n/workflows/text-analysis-main-v2.json`.
+4. In **Execute Gemini Provider Adapter**, select the imported **Provider Gemini V1** workflow. The exported workflow intentionally contains no instance-specific workflow ID.
+5. Save both workflows, test through the main workflow, and activate only the main public workflow when ready.
+
+`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available for provider-independent troubleshooting. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Model routing, fallback providers, database lookups, and threat-intelligence lookups remain out of scope for Phase 2.
+
 ## Workflow file
 
 Import `n8n/workflows/text-analysis-mock-v1.json` into a current self-hosted n8n installation.

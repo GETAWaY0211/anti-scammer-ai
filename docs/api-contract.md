@@ -164,12 +164,10 @@ Every item in `indicators` contains all of the following fields:
 | `409 Conflict` | A reused `request_id` conflicts with an earlier request. |
 | `413 Payload Too Large` | The request body or submitted media exceeds the configured limit. |
 | `415 Unsupported Media Type` | The request or submitted media type is not supported. |
-| `422 Unprocessable Content` | The request is structurally valid, but the submitted content cannot be decoded or analyzed. |
-| `429 Too Many Requests` | The caller exceeded a rate limit. |
+| `422 Unprocessable Content` | The request is structurally valid, but submitted content cannot be decoded or a parseable model result fails strict schema or taxonomy validation. |
+| `429 Too Many Requests` | The caller exceeded an API-boundary rate limit. A downstream provider rate limit is normalized to `503` by the V2 workflow. |
 | `500 Internal Server Error` | An unexpected internal error occurred. No implementation details are returned. |
-| `502 Bad Gateway` | The downstream AI provider returned an invalid response or failed. |
-| `503 Service Unavailable` | The workflow or downstream AI provider is temporarily unavailable. |
-| `504 Gateway Timeout` | The downstream analysis did not complete within the allowed time. |
+| `503 Service Unavailable` | The workflow or downstream AI provider is temporarily unavailable. Architecture V2 normalizes provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures to this status. |
 
 ## Error Response Format
 
