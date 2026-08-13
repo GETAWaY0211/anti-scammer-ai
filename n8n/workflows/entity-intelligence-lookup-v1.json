@@ -1,0 +1,258 @@
+{
+  "name": "Entity Intelligence Lookup V1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "1d747e31-15a5-4734-87c7-cf880b6b0dcf",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -900,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction failure(requestId, category) {\n  return {\n    ok: false,\n    lookup_input_valid: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The intelligence lookup could not be completed.', details: [] },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      entity_lookup: { failure_stage: 'input_validation', error_category: category }\n    }\n  };\n}\ntry {\n  const raw = $input.first().json;\n  if (!isRecord(raw) || Object.keys(raw).some((key) => key !== 'context')) {\n    return [{ json: failure(null, 'invalid_lookup_envelope') }];\n  }\n  const context = raw.context;\n  const requestId = isRecord(context) ? context.request_id : null;\n  if (!isRecord(context) || typeof context.content !== 'string' || !context.content.trim() || context.content.length > 20000) {\n    return [{ json: failure(requestId, 'invalid_lookup_context') }];\n  }\n  return [{ json: {\n    ok: true,\n    lookup_input_valid: true,\n    context: JSON.parse(JSON.stringify(context))\n  } }];\n} catch {\n  return [{ json: failure(null, 'lookup_input_validation_failure') }];\n}"
+      },
+      "id": "304e390c-7169-49ae-8018-a6ce93c3c433",
+      "name": "Validate Lookup Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c2d6987e-1c1f-44d7-9bfe-96cd243faa0b",
+              "leftValue": "={{ $json.ok === true && $json.lookup_input_valid === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ba089a32-d994-442a-baab-b57578eca484",
+      "name": "Lookup Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_ENTITIES_PER_TYPE = 10;\nconst MAX_ENTITIES_TOTAL = 20;\nconst SUPPORTED_ENTITY_TYPES = new Set(['phone', 'bank_account', 'domain']);\n\nfunction normalizePhone(value) {\n  if (typeof value !== 'string') return null;\n  const compact = value.replace(/[\\s().-]/g, '');\n  let normalized;\n  if (compact.startsWith('+66')) normalized = `0${compact.slice(3)}`;\n  else if (compact.startsWith('0066')) normalized = `0${compact.slice(4)}`;\n  else normalized = compact;\n  return /^0[689]\\d{8}$/.test(normalized) ? normalized : null;\n}\n\nfunction normalizeBankAccount(value) {\n  if (typeof value !== 'string') return null;\n  const normalized = value.replace(/[\\s-]/g, '');\n  return /^\\d{10,15}$/.test(normalized) ? normalized : null;\n}\n\nfunction isIpAddress(hostname) {\n  if (/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(hostname)) return true;\n  return hostname.includes(':');\n}\n\nfunction normalizeDomain(value) {\n  if (typeof value !== 'string') return null;\n  let candidate = value.trim().replace(/[),;!?\\]}>'\"]+$/g, '');\n  if (!candidate) return null;\n\n  const schemeMatch = candidate.match(/^([a-z][a-z0-9+.-]*):\\/\\//i);\n  if (schemeMatch) {\n    const scheme = schemeMatch[1].toLowerCase();\n    if (scheme !== 'http' && scheme !== 'https') return null;\n    candidate = candidate.slice(schemeMatch[0].length);\n  }\n\n  let authority = candidate.split(/[/?#]/, 1)[0];\n  if (!authority) return null;\n  authority = authority.split('@').pop();\n\n  let hostname;\n  if (authority.startsWith('[')) {\n    const closingBracket = authority.indexOf(']');\n    if (closingBracket < 0) return null;\n    hostname = authority.slice(1, closingBracket);\n  } else {\n    hostname = authority.split(':', 1)[0];\n  }\n\n  hostname = String(hostname || '').toLowerCase().replace(/\\.$/, '');\n  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || isIpAddress(hostname)) return null;\n  if (hostname.length > 253 || !hostname.includes('.')) return null;\n  const labels = hostname.split('.');\n  if (labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;\n  const topLevelLabel = labels[labels.length - 1];\n  if (!/^[a-z]{2,63}$/.test(topLevelLabel) && !/^xn--[a-z0-9-]{2,59}$/.test(topLevelLabel)) return null;\n  return hostname;\n}\n\nfunction addCandidate(candidates, entityType, normalizedValue, position) {\n  if (!SUPPORTED_ENTITY_TYPES.has(entityType) || !normalizedValue) return;\n  const key = `${entityType}:${normalizedValue}`;\n  const existing = candidates.get(key);\n  if (!existing || position < existing.position) {\n    candidates.set(key, { entity_type: entityType, normalized_value: normalizedValue, position });\n  }\n}\n\nfunction extractEntities(content) {\n  if (typeof content !== 'string' || !content.trim()) return [];\n  const candidates = new Map();\n  const phoneValues = new Set();\n  const phoneRanges = [];\n\n  const phonePattern = /(?<!\\d)(?:\\+66|0066|0)(?:[\\s().-]*\\d){8,10}(?!\\d)/g;\n  for (const match of content.matchAll(phonePattern)) {\n    const normalized = normalizePhone(match[0]);\n    if (!normalized) continue;\n    phoneValues.add(normalized);\n    phoneRanges.push([match.index, match.index + match[0].length]);\n    addCandidate(candidates, 'phone', normalized, match.index);\n  }\n\n  const bankPattern = /(?<!\\d)(?:\\d[\\s-]*){10,15}(?!\\d)/g;\n  for (const match of content.matchAll(bankPattern)) {\n    const overlapsPhone = phoneRanges.some(([start, end]) => (\n      match.index < end && match.index + match[0].length > start\n    ));\n    if (overlapsPhone) continue;\n    const normalized = normalizeBankAccount(match[0]);\n    if (!normalized || phoneValues.has(normalized)) continue;\n    const start = Math.max(0, match.index - 60);\n    const end = Math.min(content.length, match.index + match[0].length + 60);\n    const nearby = content.slice(start, end);\n    const hasBankContext = /(เลข(?:ที่)?บัญชี|บัญชี(?:ธนาคาร)?|bank\\s*account|account\\s*(?:number|no\\.?))/i.test(nearby);\n    const visiblyGrouped = /[\\s-]/.test(match[0].trim());\n    if (!hasBankContext && !visiblyGrouped) continue;\n    addCandidate(candidates, 'bank_account', normalized, match.index);\n  }\n\n  const schemePattern = /\\b[a-z][a-z0-9+.-]*:\\/\\/[^\\s<>]+/gi;\n  const masked = [...content];\n  const unsupportedSchemeRanges = [];\n  for (const match of content.matchAll(schemePattern)) {\n    const normalized = normalizeDomain(match[0]);\n    if (normalized) {\n      addCandidate(candidates, 'domain', normalized, match.index);\n      for (let index = match.index; index < match.index + match[0].length; index += 1) masked[index] = ' ';\n    } else if (!/^https?:\\/\\//i.test(match[0])) {\n      unsupportedSchemeRanges.push([match.index, match.index + match[0].length]);\n    }\n  }\n\n  const plainText = masked.join('');\n  const plainDomainPattern = /(?<![@\\w-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}(?![\\w-])/gi;\n  for (const match of plainText.matchAll(plainDomainPattern)) {\n    const insideUnsupportedScheme = unsupportedSchemeRanges.some(([start, end]) => (\n      match.index >= start && match.index < end\n    ));\n    if (insideUnsupportedScheme) continue;\n    const normalized = normalizeDomain(match[0]);\n    if (normalized) addCandidate(candidates, 'domain', normalized, match.index);\n  }\n\n  const typeCounts = new Map();\n  const output = [];\n  const ordered = [...candidates.values()].sort((left, right) => (\n    left.position - right.position || left.entity_type.localeCompare(right.entity_type)\n  ));\n  for (const entity of ordered) {\n    if (output.length >= MAX_ENTITIES_TOTAL) break;\n    const count = typeCounts.get(entity.entity_type) || 0;\n    if (count >= MAX_ENTITIES_PER_TYPE) continue;\n    typeCounts.set(entity.entity_type, count + 1);\n    output.push({ entity_type: entity.entity_type, normalized_value: entity.normalized_value });\n  }\n  return output;\n}\n\nfunction redactEntity(entityType, normalizedValue) {\n  if (entityType === 'domain') return normalizedValue;\n  if (entityType === 'phone') {\n    return normalizedValue.length >= 7\n      ? `${normalizedValue.slice(0, 3)}***${normalizedValue.slice(-4)}`\n      : '[REDACTED_PHONE]';\n  }\n  if (entityType === 'bank_account') {\n    return normalizedValue.length >= 4\n      ? `${'*'.repeat(Math.max(6, normalizedValue.length - 4))}${normalizedValue.slice(-4)}`\n      : '[REDACTED_ACCOUNT]';\n  }\n  return '[REDACTED]';\n}\n\ntry {\n  const data = JSON.parse(JSON.stringify($input.first().json));\n  if (data.ok !== true || !data.context || typeof data.context.content !== 'string') throw new Error('Validated lookup input is unavailable.');\n  const entities = extractEntities(data.context.content);\n  return [{ json: {\n    ok: true,\n    context: data.context,\n    entities,\n    lookup_required: entities.length > 0,\n    internal_diagnostics: {\n      entity_lookup: { extraction_performed: true, entity_count: entities.length }\n    }\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    lookup_required: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'The intelligence lookup could not be completed.', details: [] },\n      request_id: null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      entity_lookup: { failure_stage: 'entity_extraction', error_category: 'entity_extraction_failure' }\n    }\n  } }];\n}"
+      },
+      "id": "fb4e966e-d5f0-4a55-80c2-f30f520a6346",
+      "name": "Extract and Normalize Entities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        -100
+      ],
+      "notesInFlow": true,
+      "notes": "Deterministic extraction only. Limits output to 20 total and 10 per entity type; performs no network requests."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8fdb5a31-0056-4579-98aa-8237db7d1ca2",
+              "leftValue": "={{ $json.lookup_required === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d1f2103b-7e0c-48a7-98e8-d55663975db0",
+      "name": "Entities Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -20,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_entities AS (\n  SELECT\n    item.ordinality::INTEGER AS input_order,\n    item.value ->> 'entity_type' AS entity_type,\n    item.value ->> 'normalized_value' AS normalized_value\n  FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS item(value, ordinality)\n)\nSELECT\n  input_entities.input_order,\n  input_entities.entity_type,\n  input_entities.normalized_value,\n  scam_entities.status,\n  scam_entities.report_count,\n  scam_entities.confidence_score,\n  scam_entities.source\nFROM input_entities\nLEFT JOIN scam_entities\n  ON scam_entities.is_active = TRUE\n AND scam_entities.entity_type = input_entities.entity_type\n AND scam_entities.normalized_value = input_entities.normalized_value\nORDER BY input_entities.input_order\nLIMIT 20;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.entities)] }}"
+        }
+      },
+      "id": "037b50f7-d350-443f-a278-4b74dc63f6a3",
+      "name": "PostgreSQL Lookup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        200,
+        -180
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "notes": "After import, select a PostgreSQL credential. The fixed query binds the extracted entity array as $1; submitted values are never concatenated into SQL."
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction redact(entityType, value) {\n  const normalized = typeof value === 'string' ? value : '';\n  if (entityType === 'domain') return normalized;\n  if (entityType === 'phone') return normalized.length >= 7 ? normalized.slice(0, 3) + '***' + normalized.slice(-4) : '[REDACTED_PHONE]';\n  if (entityType === 'bank_account') return normalized.length >= 4 ? '*'.repeat(Math.max(6, normalized.length - 4)) + normalized.slice(-4) : '[REDACTED_ACCOUNT]';\n  return '[REDACTED]';\n}\nfunction safeFailure(requestId, stage, category) {\n  return {\n    ok: false,\n    status_code: stage === 'database_lookup' ? 503 : 500,\n    public_response: {\n      error: {\n        code: stage === 'database_lookup' ? 'INTELLIGENCE_LOOKUP_UNAVAILABLE' : 'INTERNAL_ERROR',\n        message: stage === 'database_lookup'\n          ? 'The intelligence lookup service is temporarily unavailable.'\n          : 'The intelligence lookup could not be completed.',\n        details: []\n      },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      entity_lookup: { failure_stage: stage, error_category: category }\n    }\n  };\n}\ntry {\n  const incoming = $input.all().map((item) => item.json);\n  const first = incoming[0] || {};\n  if (first.ok === false && first.public_response) {\n    const stage = first.internal_diagnostics && first.internal_diagnostics.entity_lookup && first.internal_diagnostics.entity_lookup.failure_stage;\n    const category = first.internal_diagnostics && first.internal_diagnostics.entity_lookup && first.internal_diagnostics.entity_lookup.error_category;\n    return [{ json: safeFailure(first.public_response.request_id, stage || 'input_validation', category || 'invalid_lookup_input') }];\n  }\n\n  let extracted;\n  try { extracted = $('Extract and Normalize Entities').first().json; } catch { extracted = first; }\n  const context = isRecord(extracted.context) ? extracted.context : null;\n  const requestId = context && context.request_id;\n  if (!context || !Array.isArray(extracted.entities)) {\n    return [{ json: safeFailure(requestId, 'result_normalization', 'missing_extraction_context') }];\n  }\n  if (incoming.some((row) => row && row.error)) {\n    return [{ json: safeFailure(requestId, 'database_lookup', 'database_unavailable') }];\n  }\n\n  const rowsByKey = new Map();\n  for (const row of incoming) {\n    if (!isRecord(row) || typeof row.entity_type !== 'string' || typeof row.normalized_value !== 'string') continue;\n    rowsByKey.set(row.entity_type + ':' + row.normalized_value, row);\n  }\n  const allowedStatuses = new Set(['reported', 'suspected', 'confirmed_scam', 'cleared']);\n  const entities = extracted.entities.map((entity) => {\n    const row = rowsByKey.get(entity.entity_type + ':' + entity.normalized_value);\n    const matched = Boolean(row && allowedStatuses.has(row.status));\n    const reportCount = matched ? Number(row.report_count) : null;\n    const confidence = matched && row.confidence_score !== null && row.confidence_score !== undefined\n      ? Number(row.confidence_score)\n      : null;\n    return {\n      entity_type: entity.entity_type,\n      redacted_value: redact(entity.entity_type, entity.normalized_value),\n      matched,\n      status: matched ? row.status : null,\n      report_count: matched && Number.isInteger(reportCount) && reportCount >= 0 ? reportCount : null,\n      confidence_score: matched && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : null\n    };\n  });\n  const matchedCount = entities.filter((entity) => entity.matched).length;\n  const safeContext = {\n    request_id: typeof context.request_id === 'string' ? context.request_id : null,\n    analysis_id: typeof context.analysis_id === 'string' ? context.analysis_id : null,\n    input_type: typeof context.input_type === 'string' ? context.input_type : null,\n    language: typeof context.language === 'string' ? context.language : null,\n    accepted_at: typeof context.accepted_at === 'string' ? context.accepted_at : null,\n    accepted_epoch_ms: Number.isFinite(context.accepted_epoch_ms) ? context.accepted_epoch_ms : null,\n    requested_output_language: typeof context.requested_output_language === 'string' ? context.requested_output_language : null\n  };\n  return [{ json: {\n    ok: true,\n    context: safeContext,\n    intelligence: { entities },\n    internal_diagnostics: {\n      entity_lookup: {\n        lookup_performed: extracted.entities.length > 0,\n        entity_count: entities.length,\n        matched_count: matchedCount\n      }\n    }\n  } }];\n} catch {\n  return [{ json: safeFailure(null, 'result_normalization', 'result_normalization_failure') }];\n}"
+      },
+      "id": "b4c8c7b8-71bc-428a-aba9-49e0e9349e4f",
+      "name": "Normalize Intelligence Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Returns one safe internal result. Phone and bank-account values are redacted; database errors and connection details are discarded."
+    },
+    {
+      "parameters": {
+        "content": "## Phase 5A/5B — isolated intelligence lookup\nThis sub-workflow is not connected to Text Analysis Main V2. It extracts phone, bank-account, and domain entities deterministically, performs one parameterized PostgreSQL lookup, and returns a normalized internal result. No public webhook or scoring behavior is present.",
+        "height": 230,
+        "width": 720,
+        "color": 5
+      },
+      "id": "f2e3f409-caa4-4195-8a6f-1af3bdbbbd96",
+      "name": "Phase 5A 5B Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        -380
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Lookup Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lookup Input": {
+      "main": [
+        [
+          {
+            "node": "Lookup Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Extract and Normalize Entities",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract and Normalize Entities": {
+      "main": [
+        [
+          {
+            "node": "Entities Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entities Found?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL Lookup": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "fbc2bbd0-cb46-49c2-ace2-fee4b033f400",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

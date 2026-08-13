@@ -2,6 +2,12 @@
 
 This directory contains the text-and-image MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
+## Phase 5A/5B — isolated entity intelligence
+
+`n8n/workflows/entity-intelligence-lookup-v1.json` is an isolated sub-workflow for deterministic extraction and local PostgreSQL lookup of phone, bank-account, and domain entities. It is deliberately **not connected** to Text Analysis Main V2 in this phase and does not change public responses, risk scoring, indicators, or human-review behavior.
+
+The local Compose stack in `n8n/docker-compose.yml` now includes PostgreSQL 17. Copy `n8n/.env.example` to `n8n/.env`, set a local password, start the `postgres` service, then apply the migration and development seed in `database/`. Import Entity Intelligence Lookup V1 separately and select a Postgres credential on **PostgreSQL Lookup**. When both services share the Compose network, use host `postgres`; see `database/README.md` for exact commands, networking alternatives, the internal contract, and manual tests.
+
 ## Architecture V2 — Phase 4
 
 `n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Phase 4 accepts either text or one Base64 image. Validated images are converted to extracted text by `n8n/workflows/image-preprocessor-v1.json` before entering the same router, strict validation, scoring, and public-response pipeline as text.
