@@ -1,0 +1,382 @@
+{
+  "name": "Semantic Pattern Lookup V1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "5dc20000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_CONTENT_LENGTH = 10000;\nfunction isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }\nfunction failure(requestId, category) {\n  return {\n    ok: false,\n    semantic_input_valid: false,\n    status_code: 400,\n    public_response: {\n      error: { code: 'SEMANTIC_LOOKUP_INVALID_INPUT', message: 'The semantic lookup input is invalid.', details: [] },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: { semantic_lookup: { failure_stage: 'input_validation', error_category: category } }\n  };\n}\ntry {\n  const raw = $input.first().json;\n  if (!isRecord(raw) || Object.keys(raw).some((key) => key !== 'context')) return [{ json: failure(null, 'invalid_envelope') }];\n  const context = raw.context;\n  const requestId = isRecord(context) ? context.request_id : null;\n  const allowed = new Set(['request_id', 'analysis_id', 'content', 'language']);\n  if (!isRecord(context) || Object.keys(context).some((key) => !allowed.has(key))) return [{ json: failure(requestId, 'unsupported_context_field') }];\n  if (['model', 'embedding_model', 'vector', 'embedding', 'top_k', 'similarity_threshold', 'threshold'].some((key) => Object.prototype.hasOwnProperty.call(context, key))) {\n    return [{ json: failure(requestId, 'client_controlled_lookup_option') }];\n  }\n  if (typeof context.content !== 'string' || !context.content.trim()) return [{ json: failure(requestId, 'empty_content') }];\n  const content = context.content.trim();\n  if (content.length > MAX_CONTENT_LENGTH) return [{ json: failure(requestId, 'content_too_large') }];\n  if (/^data:/i.test(content) || (content.length > 1024 && /^[A-Za-z0-9+/=\\r\\n]+$/.test(content))) {\n    return [{ json: failure(requestId, 'binary_or_base64_content') }];\n  }\n  return [{\n    json: {\n      ok: true,\n      semantic_input_valid: true,\n      context: {\n        request_id: typeof context.request_id === 'string' ? context.request_id : null,\n        analysis_id: typeof context.analysis_id === 'string' ? context.analysis_id : null,\n        content,\n        language: typeof context.language === 'string' && context.language.trim() ? context.language.trim() : 'und'\n      }\n    }\n  }];\n} catch {\n  return [{ json: failure(null, 'validation_exception') }];\n}"
+      },
+      "id": "5dc20000-0000-4000-8000-000000000002",
+      "name": "Validate Semantic Lookup Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5dc20000-0000-4000-8000-000000000003c",
+              "leftValue": "={{ $json.ok === true && $json.semantic_input_valid === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5dc20000-0000-4000-8000-000000000003",
+      "name": "Semantic Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const EMBEDDING_MODEL = 'gemini-embedding-2';\nconst EMBEDDING_DIMENSIONS = 768;\ntry {\n  const data = $input.first().json;\n  return [{\n    json: {\n      ok: true,\n      embedding_request_ready: true,\n      context: data.context,\n      embedding_model: EMBEDDING_MODEL,\n      embedding_dimensions: EMBEDDING_DIMENSIONS,\n      embedding_url: 'https://generativelanguage.googleapis.com/v1beta/models/' + EMBEDDING_MODEL + ':embedContent',\n      embedding_request: {\n        model: 'models/' + EMBEDDING_MODEL,\n        content: { parts: [{ text: 'task: search result | query: ' + data.context.content }] },\n        output_dimensionality: EMBEDDING_DIMENSIONS\n      }\n    }\n  }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: { error: { code: 'INTERNAL_ERROR', message: 'The semantic lookup could not be completed.', details: [] }, request_id: null, timestamp: new Date().toISOString() },\n    internal_diagnostics: { semantic_lookup: { failure_stage: 'request_build', error_category: 'request_build_failure' } }\n  } }];\n}"
+      },
+      "id": "5dc20000-0000-4000-8000-000000000004",
+      "name": "Build Embedding Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5dc20000-0000-4000-8000-000000000005c",
+              "leftValue": "={{ $json.ok === true && $json.embedding_request_ready === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5dc20000-0000-4000-8000-000000000005",
+      "name": "Embedding Request Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.embedding_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.embedding_request) }}",
+        "options": {
+          "timeout": 45000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5dc20000-0000-4000-8000-000000000006",
+      "name": "Generate Query Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        240,
+        -220
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "Select HTTP Header Auth with header name x-goog-api-key. Model and dimension are fixed in the preceding Code node."
+    },
+    {
+      "parameters": {
+        "jsCode": "const EMBEDDING_DIMENSIONS = 768;\nfunction failure(data, category, status) {\n  const context = data && data.context;\n  return {\n    ok: false,\n    status_code: status,\n    public_response: {\n      error: { code: 'SEMANTIC_LOOKUP_UNAVAILABLE', message: 'The semantic lookup service is temporarily unavailable.', details: [] },\n      request_id: context && context.request_id ? context.request_id : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: { semantic_lookup: { failure_stage: 'embedding_provider', error_category: category, provider_http_status: null } }\n  };\n}\ntry {\n  const request = $('Build Embedding Request').first().json;\n  const response = $input.first().json || {};\n  const status = Number(response.statusCode ?? response.status ?? 200);\n  if (response.error || !Number.isInteger(status) || status < 200 || status >= 300) {\n    const result = failure(request, 'provider_request_failed', 503);\n    result.internal_diagnostics.semantic_lookup.provider_http_status = Number.isInteger(status) ? status : null;\n    return [{ json: result }];\n  }\n  let body = response.body ?? response;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch { return [{ json: failure(request, 'malformed_provider_json', 503) }]; }\n  }\n  const values = body && body.embedding && Array.isArray(body.embedding.values)\n    ? body.embedding.values\n    : body && Array.isArray(body.embeddings) && body.embeddings[0] && Array.isArray(body.embeddings[0].values)\n      ? body.embeddings[0].values\n      : null;\n  if (!values || values.length !== EMBEDDING_DIMENSIONS || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {\n    return [{ json: failure(request, 'invalid_embedding_dimension', 503) }];\n  }\n  return [{\n    json: {\n      ok: true,\n      embedding_parsed: true,\n      context: request.context,\n      embedding_model: 'gemini-embedding-2',\n      embedding_dimensions: EMBEDDING_DIMENSIONS,\n      query_embedding_literal: JSON.stringify(values),\n      internal_diagnostics: { semantic_lookup: { failure_stage: null, error_category: null, provider_http_status: status } }\n    }\n  }];\n} catch {\n  return [{ json: failure(null, 'embedding_parse_failure', 500) }];\n}"
+      },
+      "id": "5dc20000-0000-4000-8000-000000000007",
+      "name": "Parse Embedding Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5dc20000-0000-4000-8000-000000000008c",
+              "leftValue": "={{ $json.ok === true && $json.embedding_parsed === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5dc20000-0000-4000-8000-000000000008",
+      "name": "Embedding Parsed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH nearest AS (\n  SELECT\n    pattern.pattern_code,\n    pattern.scam_category AS category,\n    example.id AS example_id,\n    1 - (example.embedding <=> $1::vector) AS similarity\n  FROM scam_pattern_examples AS example\n  JOIN scam_patterns AS pattern ON pattern.id = example.pattern_id\n  WHERE example.example_status = 'verified'\n    AND example.is_active = TRUE\n    AND pattern.status = 'verified'\n    AND pattern.is_active = TRUE\n    AND example.embedding IS NOT NULL\n    AND example.embedding_model = $2\n    AND example.embedding_dimensions = $3\n  ORDER BY example.embedding <=> $1::vector, pattern.pattern_code, example.id\n  LIMIT 5\n)\nSELECT\n  pattern_code,\n  category,\n  similarity,\n  ROW_NUMBER() OVER (ORDER BY similarity DESC, pattern_code, example_id)::INTEGER AS example_rank\nFROM nearest\nORDER BY example_rank;",
+        "options": {
+          "queryReplacement": "={{ [$json.query_embedding_literal, $json.embedding_model, $json.embedding_dimensions] }}"
+        }
+      },
+      "id": "5dc20000-0000-4000-8000-000000000009",
+      "name": "PostgreSQL Cosine Lookup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        940,
+        -320
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "notes": "Select a PostgreSQL credential. The vector, model, and dimension are bound parameters. The fixed query reads only verified active examples and returns at most five rows."
+    },
+    {
+      "parameters": {
+        "jsCode": "function failure(source, stage, category, status) {\n  const context = source && source.context;\n  return {\n    ok: false,\n    status_code: status,\n    public_response: {\n      error: {\n        code: status === 503 ? 'SEMANTIC_LOOKUP_UNAVAILABLE' : 'INTERNAL_ERROR',\n        message: status === 503 ? 'The semantic lookup service is temporarily unavailable.' : 'The semantic lookup could not be completed.',\n        details: []\n      },\n      request_id: context && context.request_id ? context.request_id : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: { semantic_lookup: { failure_stage: stage, error_category: category } }\n  };\n}\ntry {\n  const input = $input.all().map((item) => item.json || {});\n  const upstream = input.length === 1 && input[0].ok === false ? input[0] : null;\n  if (upstream) return [{ json: upstream }];\n  const parsed = $('Parse Embedding Response').first().json;\n  if (input.some((row) => row.error)) return [{ json: failure(parsed, 'database_lookup', 'database_unavailable', 503) }];\n  const matches = input\n    .filter((row) => typeof row.pattern_code === 'string')\n    .map((row) => ({\n      pattern_code: row.pattern_code,\n      category: typeof row.category === 'string' ? row.category : 'unclear',\n      similarity: Number(row.similarity),\n      example_rank: Number(row.example_rank)\n    }))\n    .filter((row) => Number.isFinite(row.similarity) && Number.isInteger(row.example_rank) && row.example_rank >= 1 && row.example_rank <= 5)\n    .sort((a, b) => a.example_rank - b.example_rank);\n  const groups = new Map();\n  for (const match of matches) {\n    if (!groups.has(match.pattern_code)) groups.set(match.pattern_code, { pattern_code: match.pattern_code, category: match.category, values: [] });\n    groups.get(match.pattern_code).values.push(match);\n  }\n  const round = (value) => Number(value.toFixed(6));\n  const patterns = [...groups.values()].map((group) => {\n    const similarities = group.values.map((value) => value.similarity);\n    return {\n      pattern_code: group.pattern_code,\n      category: group.category,\n      best_similarity: round(Math.max(...similarities)),\n      average_similarity: round(similarities.reduce((sum, value) => sum + value, 0) / similarities.length),\n      matched_example_count: similarities.length,\n      matched_examples: group.values.map((value) => ({ similarity: round(value.similarity), example_rank: value.example_rank }))\n    };\n  }).sort((a, b) =>\n    b.best_similarity - a.best_similarity ||\n    b.average_similarity - a.average_similarity ||\n    b.matched_example_count - a.matched_example_count ||\n    a.pattern_code.localeCompare(b.pattern_code, 'en')\n  );\n  return [{\n    json: {\n      ok: true,\n      context: {\n        request_id: parsed.context.request_id,\n        analysis_id: parsed.context.analysis_id,\n        language: parsed.context.language\n      },\n      semantic_intelligence: { top_k: 5, patterns },\n      internal_diagnostics: {\n        semantic_lookup: {\n          lookup_performed: true,\n          retrieved_example_count: matches.length,\n          aggregated_pattern_count: patterns.length\n        }\n      }\n    }\n  }];\n} catch {\n  return [{ json: failure(null, 'result_normalization', 'normalization_failure', 500) }];\n}"
+      },
+      "id": "5dc20000-0000-4000-8000-000000000010",
+      "name": "Normalize Semantic Intelligence Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Phase 5D-C — standalone semantic retrieval\nProvider/model/dimension/top-k are trusted constants: `gemini-embedding-2`, 768, and 5. Runtime text and query vectors are transient and never written to PostgreSQL. Exact pgvector cosine search reads only verified active examples, then aggregates deterministically by pattern. No threshold, scam decision, scoring, public response, or Main integration exists in this phase.",
+        "height": 280,
+        "width": 720,
+        "color": 5
+      },
+      "id": "5dc20000-0000-4000-8000-000000000011",
+      "name": "Phase 5D-C Lookup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        -420
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Semantic Lookup Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Semantic Lookup Input": {
+      "main": [
+        [
+          {
+            "node": "Semantic Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Semantic Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Build Embedding Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Semantic Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Embedding Request": {
+      "main": [
+        [
+          {
+            "node": "Embedding Request Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embedding Request Ready?": {
+      "main": [
+        [
+          {
+            "node": "Generate Query Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Semantic Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Query Embedding": {
+      "main": [
+        [
+          {
+            "node": "Parse Embedding Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Embedding Response": {
+      "main": [
+        [
+          {
+            "node": "Embedding Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embedding Parsed?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL Cosine Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Semantic Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL Cosine Lookup": {
+      "main": [
+        [
+          {
+            "node": "Normalize Semantic Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "versionId": "5dc20000-0000-4000-8000-000000000099",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

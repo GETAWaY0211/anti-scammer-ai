@@ -1,0 +1,228 @@
+{
+  "name": "Generate Curated Pattern Embeddings V1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "5dc10000-0000-4000-8000-000000000001",
+      "name": "Manual Operator Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  example.id AS example_id,\n  pattern.pattern_code,\n  pattern.name AS pattern_name,\n  example.example_text\nFROM scam_pattern_examples AS example\nJOIN scam_patterns AS pattern ON pattern.id = example.pattern_id\nWHERE example.example_status = 'verified'\n  AND example.is_active = TRUE\n  AND pattern.status = 'verified'\n  AND pattern.is_active = TRUE\n  AND example.source = 'development_curated_seed'\n  AND (\n    example.embedding IS NULL\n    OR example.embedding_model IS DISTINCT FROM 'gemini-embedding-2'\n    OR example.embedding_dimensions IS DISTINCT FROM 768\n  )\nORDER BY pattern.pattern_code, example.id;",
+        "options": {}
+      },
+      "id": "5dc10000-0000-4000-8000-000000000002",
+      "name": "Load Verified Curated Examples",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -500,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Select a PostgreSQL credential after import. This fixed query reads only verified, active curated development examples that need the configured embedding."
+    },
+    {
+      "parameters": {
+        "jsCode": "const EMBEDDING_MODEL = 'gemini-embedding-2';\nconst EMBEDDING_DIMENSIONS = 768;\nconst rawItems = $input.all();\nreturn rawItems.map((item) => {\n  const row = item.json || {};\n  if (!Number.isInteger(Number(row.example_id)) || typeof row.pattern_name !== 'string' || typeof row.example_text !== 'string' || !row.example_text.trim()) {\n    throw new Error('A curated embedding row is malformed.');\n  }\n  return {\n    json: {\n      example_id: Number(row.example_id),\n      embedding_model: EMBEDDING_MODEL,\n      embedding_dimensions: EMBEDDING_DIMENSIONS,\n      embedding_url: 'https://generativelanguage.googleapis.com/v1beta/models/' + EMBEDDING_MODEL + ':embedContent',\n      embedding_request: {\n        model: 'models/' + EMBEDDING_MODEL,\n        content: {\n          parts: [{\n            text: 'title: ' + row.pattern_name.trim() + ' | text: ' + row.example_text.trim()\n          }]\n        },\n        output_dimensionality: EMBEDDING_DIMENSIONS\n      }\n    }\n  };\n});"
+      },
+      "id": "5dc10000-0000-4000-8000-000000000003",
+      "name": "Build Curated Embedding Requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.embedding_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.embedding_request) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5dc10000-0000-4000-8000-000000000004",
+      "name": "Generate Gemini Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        0,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "Select HTTP Header Auth with header name x-goog-api-key. The credential is never exported."
+    },
+    {
+      "parameters": {
+        "jsCode": "const EMBEDDING_MODEL = 'gemini-embedding-2';\nconst EMBEDDING_DIMENSIONS = 768;\nconst responses = $input.all();\nconst requests = $('Build Curated Embedding Requests').all();\nif (responses.length !== requests.length) throw new Error('Curated embedding response count mismatch.');\nreturn responses.map((item, index) => {\n  const response = item.json || {};\n  const request = requests[index] && requests[index].json;\n  const status = Number(response.statusCode ?? response.status ?? 200);\n  if (response.error || !Number.isInteger(status) || status < 200 || status >= 300) {\n    throw new Error('Curated embedding provider request failed.');\n  }\n  let body = response.body ?? response;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch { throw new Error('Curated embedding provider returned malformed JSON.'); }\n  }\n  const values = body && body.embedding && Array.isArray(body.embedding.values)\n    ? body.embedding.values\n    : body && Array.isArray(body.embeddings) && body.embeddings[0] && Array.isArray(body.embeddings[0].values)\n      ? body.embeddings[0].values\n      : null;\n  if (!values || values.length !== EMBEDDING_DIMENSIONS || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {\n    throw new Error('Curated embedding provider returned an invalid vector dimension.');\n  }\n  return {\n    json: {\n      example_id: request.example_id,\n      embedding_model: EMBEDDING_MODEL,\n      embedding_dimensions: EMBEDDING_DIMENSIONS,\n      embedding_literal: JSON.stringify(values)\n    }\n  };\n});"
+      },
+      "id": "5dc10000-0000-4000-8000-000000000005",
+      "name": "Validate Curated Embedding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scam_pattern_examples\nSET\n  embedding = $1::vector,\n  embedding_model = $2,\n  embedding_dimensions = $3\nWHERE id = $4\n  AND example_status = 'verified'\n  AND is_active = TRUE\n  AND source = 'development_curated_seed'\nRETURNING embedding_model, embedding_dimensions;",
+        "options": {
+          "queryReplacement": "={{ [$json.embedding_literal, $json.embedding_model, $json.embedding_dimensions, $json.example_id] }}"
+        }
+      },
+      "id": "5dc10000-0000-4000-8000-000000000006",
+      "name": "Store Curated Embedding",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        520,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "Select the same PostgreSQL credential. Parameters bind the vector and row identifier; this operator-only workflow updates embedding fields on existing curated rows only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((item) => item.json || {});\nif (rows.some((row) => row.error)) throw new Error('Curated embedding database update failed.');\nreturn [{\n  json: {\n    ok: true,\n    embedding_model: 'gemini-embedding-2',\n    embedding_dimensions: 768,\n    updated_example_count: rows.length\n  }\n}];"
+      },
+      "id": "5dc10000-0000-4000-8000-000000000007",
+      "name": "Embedding Generation Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Curated embedding generation only\nManual, operator-run workflow. It embeds only verified active rows from `development_curated_seed`, updates only their embedding metadata, and never accepts or stores runtime user input. Fixed model: `gemini-embedding-2`; dimension: 768. Configure Gemini HTTP Header Auth (`x-goog-api-key`) and PostgreSQL credentials after import.",
+        "height": 260,
+        "width": 700,
+        "color": 5
+      },
+      "id": "5dc10000-0000-4000-8000-000000000008",
+      "name": "Phase 5D-C Generation Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -360
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Operator Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Verified Curated Examples",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Verified Curated Examples": {
+      "main": [
+        [
+          {
+            "node": "Build Curated Embedding Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Curated Embedding Requests": {
+      "main": [
+        [
+          {
+            "node": "Generate Gemini Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Gemini Embedding": {
+      "main": [
+        [
+          {
+            "node": "Validate Curated Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Curated Embedding": {
+      "main": [
+        [
+          {
+            "node": "Store Curated Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Curated Embedding": {
+      "main": [
+        [
+          {
+            "node": "Embedding Generation Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "versionId": "5dc10000-0000-4000-8000-000000000099",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
+

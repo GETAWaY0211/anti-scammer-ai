@@ -18,7 +18,7 @@ services:
       - n8n_data:/home/node/.n8n
 
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     container_name: anti-scammer-postgres
     restart: unless-stopped
 

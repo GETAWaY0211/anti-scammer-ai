@@ -8,10 +8,10 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 
-test('PostgreSQL 17 Compose service uses environment-based credentials and persistent storage', () => {
+test('PostgreSQL 17 pgvector Compose service uses environment-based credentials and persistent storage', () => {
   const compose = read('n8n', 'docker-compose.yml');
   assert.match(compose, /^\s*postgres:\s*$/m);
-  assert.match(compose, /image:\s*postgres:17\b/);
+  assert.match(compose, /image:\s*pgvector\/pgvector:pg17\b/);
   assert.match(compose, /POSTGRES_PASSWORD:\s*\$\{POSTGRES_PASSWORD:/);
   assert.match(compose, /postgres_data:\/var\/lib\/postgresql\/data/);
   const passwordLine = compose.split(/\r?\n/).find((line) => line.includes('POSTGRES_PASSWORD:'));

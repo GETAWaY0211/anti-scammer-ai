@@ -1,6 +1,30 @@
 # Local PostgreSQL Scam Intelligence
 
-Phase 5A/5B established the local PostgreSQL 17 database and **Entity Intelligence Lookup V1**. Phase 5C connects that read-only sub-workflow to Text Analysis Main V2 and merges backend-derived indicators before deterministic scoring version 1.1.0, without adding public database fields.
+Phase 5A/5B established the local PostgreSQL 17 database and **Entity Intelligence Lookup V1**. Phase 5C connects that read-only sub-workflow to Text Analysis Main V2 and merges backend-derived indicators before deterministic scoring version 1.1.0, without adding public database fields. Phase 5D-A changes the same PostgreSQL 17 service to the pgvector-enabled image and adds a relational foundation for curated semantic scam patterns; it does not add embeddings or a runtime semantic lookup.
+
+## Intelligence data boundaries
+
+- **Entity Intelligence** (`scam_entities`) supports deterministic exact matching of normalized phones, bank accounts, and domains in the current read-only analysis path.
+- **Semantic Pattern Intelligence** (`scam_patterns` and `scam_pattern_examples`) stores curated, synthetic, or independently verified pattern definitions and examples prepared outside the analysis request path.
+
+Phase 5D-A enables the `vector` extension so the database is ready for a later phase, but deliberately creates no vector column, embedding job, similarity query, HNSW/IVFFlat index, or fixed embedding dimension. `embedding_model` and `embedding_dimensions` are nullable provenance fields only. A vector dimension will be chosen after an embedding model is selected.
+
+User requests, screenshots, Base64 data, extracted user text, prompts, provider output, and analysis history must never be inserted into `scam_pattern_examples`. No n8n runtime database-write path is introduced in this phase.
+
+## Phase 5D-C semantic retrieval foundation
+
+Phase 5D-C fixes the server-side embedding configuration to **`gemini-embedding-2` at 768 dimensions**. Google documents the model as supporting more than 100 languages and lists 768 as a recommended output size. The model and dimension are trusted workflow constants and cannot be selected by lookup input. See the [official Gemini embedding documentation](https://ai.google.dev/gemini-api/docs/embeddings).
+
+Migration `003_add_scam_pattern_embeddings.sql` adds `embedding vector(768)` and a consistency constraint requiring a populated vector to use exactly `gemini-embedding-2` and 768-dimensional metadata. There is deliberately no HNSW or IVFFlat index: the curated hackathon dataset is small, so the first implementation performs exact cosine-distance search.
+
+Document and query inputs use the provider's asymmetric retrieval convention consistently:
+
+- curated example: `title: <pattern name> | text: <example text>`
+- runtime query: `task: search result | query: <submitted text>`
+
+`Generate Curated Pattern Embeddings V1` is manual/operator-only. It reads verified active rows whose source is `development_curated_seed`, generates missing or outdated embeddings, and updates only `embedding`, `embedding_model`, and `embedding_dimensions` on those existing rows. It never creates examples and never receives runtime user requests.
+
+`Semantic Pattern Lookup V1` is an isolated sub-workflow. Runtime content and its vector exist transiently in workflow memory only. Its parameterized PostgreSQL query reads the five nearest verified active examples using cosine distance (`<=>`), then groups them by `pattern_code` and reports best similarity, average similarity, matched-example count, and safe example ranks. Patterns are sorted by best similarity, average similarity, count, then code. No similarity threshold or scam conclusion is applied in this phase, and the result has no scoring or public API effect.
 
 ## Start PostgreSQL locally
 
@@ -18,7 +42,7 @@ docker compose up -d postgres
 docker compose ps
 ```
 
-The Compose service uses PostgreSQL 17, stores database files in the named `postgres_data` volume, publishes `${POSTGRES_PORT:-5432}`, and requires `POSTGRES_PASSWORD` from `n8n/.env`.
+The Compose service uses `pgvector/pgvector:pg17`, stores database files in the existing named `postgres_data` volume, publishes `${POSTGRES_PORT:-5432}`, and requires `POSTGRES_PASSWORD` from `n8n/.env`. Updating the image recreates the container when necessary but preserves the named volume. Do not run `docker compose down -v` or manually delete `postgres_data`.
 
 ## Apply the migration and development seed
 
@@ -28,11 +52,20 @@ Run from `n8n/` after PostgreSQL is healthy:
 Get-Content -Raw ..\database\migrations\001_create_scam_entities.sql |
   docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 
+Get-Content -Raw ..\database\migrations\002_enable_pgvector_and_create_scam_patterns.sql |
+  docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+Get-Content -Raw ..\database\migrations\003_add_scam_pattern_embeddings.sql |
+  docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
 Get-Content -Raw ..\database\seeds\demo_scam_entities.sql |
+  docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+Get-Content -Raw ..\database\seeds\demo_scam_patterns.sql |
   docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
-Both files are safe to rerun: the migration uses guarded DDL and the seed uses `ON CONFLICT ... DO UPDATE`.
+The migration files use guarded DDL. Both development seeds are idempotent: entity rows use deterministic conflict updates, while pattern examples are reconciled by pattern, language, and exact curated text before missing rows are inserted.
 
 Check the development rows without printing full phone or account values:
 
@@ -41,6 +74,19 @@ docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -
 ```
 
 All seed rows use `source = 'development_seed'`. Domains use the reserved `.example` TLD. Phone and bank-account values are synthetic and intended only for local testing.
+
+### Curated semantic-pattern examples
+
+`demo_scam_patterns.sql` adds eight verified, active development patterns with four synthetic Thai examples each. The examples vary wording, urgency, sentence order, organization claims, and how credential, payment, or device-access requests are expressed. They are authored test intelligence—not real victim conversations and not data collected from API requests or n8n execution history.
+
+New rows created by the seed leave `embedding_model`, `embedding_dimensions`, and `embedding` as `NULL`. Rerunning the seed preserves embeddings already generated for an unchanged curated example. After migration `003`, the separate operator-run generation workflow may populate missing embedding fields. Loading the seed alone does not make semantic search available.
+
+Check the curated row counts without printing example text:
+
+```powershell
+'SELECT p.pattern_code, p.status, p.is_active, COUNT(e.id) AS example_count FROM scam_patterns p LEFT JOIN scam_pattern_examples e ON e.pattern_id = p.id AND e.is_active = TRUE WHERE p.source = ''development_curated_seed'' GROUP BY p.id, p.pattern_code, p.status, p.is_active ORDER BY p.pattern_code;' |
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
 
 ## Schema
 
@@ -54,6 +100,38 @@ All seed rows use `source = 'development_seed'`. Domains use the reserved `.exam
 - automatically maintained `updated_at`
 
 Indexes support active `(entity_type, normalized_value)` lookup and active status/type filtering.
+
+`scam_patterns` enforces a unique non-empty `pattern_code`, the statuses `draft`, `verified`, and `disabled`, and a nullable `confidence_score` constrained to `0..1`. `scam_pattern_examples` belongs to a pattern through an `ON DELETE CASCADE` foreign key and enforces the same lifecycle statuses for examples. Partial relational indexes support active verified patterns by category/status and active verified examples by pattern/language.
+
+Verify Phase 5D-A manually after applying migration `002`:
+
+```powershell
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT extname, extversion FROM pg_extension WHERE extname = ''vector'';"'
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d scam_patterns"'
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d scam_pattern_examples"'
+```
+
+These commands are required runtime checks. Static repository tests alone do not prove that the extension has loaded in a running container.
+
+### Configure and test Phase 5D-C workflows
+
+Import in this order:
+
+1. `n8n/workflows/generate-curated-pattern-embeddings-v1.json`
+2. `n8n/workflows/semantic-pattern-lookup-v1.json`
+
+For both workflows, select the local PostgreSQL credential on every Postgres node. Select an HTTP Header Auth credential with header name `x-goog-api-key` on each Gemini embedding HTTP node. Credentials and workflow IDs are not embedded in the exports.
+
+Run **Generate Curated Pattern Embeddings V1** manually after migration `003` and the curated seed. A first successful run should update the verified active curated examples; an immediate rerun should find no rows needing regeneration. Confirm coverage without printing vectors or example text:
+
+```powershell
+'SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL) AS embedded, COUNT(*) AS total FROM scam_pattern_examples WHERE example_status = ''verified'' AND is_active = TRUE AND source = ''development_curated_seed'';' |
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+Test **Semantic Pattern Lookup V1** as a sub-workflow with one `context` item. Use the five cases in `tests/fixtures/semantic-pattern-cases.json`. Save the returned per-pattern similarity arrays into each case's `observed_similarity_distribution` for later calibration. Do not infer or add a threshold from this small dataset; threshold calibration is deferred to Phase 5D-D. These distributions intentionally remain `null` until manual runtime testing.
+
+Production privacy settings should minimize n8n execution-data retention: runtime text, provider request payloads, responses, and query vectors may be visible transiently in authorized execution data even though PostgreSQL never persists them.
 
 ## Configure the n8n Postgres credential
 

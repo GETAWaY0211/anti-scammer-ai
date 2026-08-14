@@ -1,0 +1,43 @@
+{
+  "embedding_model": "gemini-embedding-2",
+  "embedding_dimensions": 768,
+  "top_k": 5,
+  "calibration_status": "pending_manual_runtime_capture",
+  "cases": [
+    {
+      "id": "bank_otp_paraphrase",
+      "language": "th",
+      "content": "มีคนอ้างว่าโทรจากธนาคารและเร่งให้บอกรหัสยืนยันเพื่อหยุดรายการผิดปกติ",
+      "expected_candidate_pattern": "BANK_OTP_IMPERSONATION",
+      "observed_similarity_distribution": null
+    },
+    {
+      "id": "prize_fee_paraphrase",
+      "language": "th",
+      "content": "แจ้งว่าได้รับของรางวัลแต่ต้องจ่ายค่าดำเนินการก่อนจึงจะรับได้",
+      "expected_candidate_pattern": "PRIZE_FEE",
+      "observed_similarity_distribution": null
+    },
+    {
+      "id": "fake_job_recharge_paraphrase",
+      "language": "th",
+      "content": "งานออนไลน์แจ้งให้เติมเครดิตเพิ่มเพื่อเปิดภารกิจและถอนค่าจ้าง",
+      "expected_candidate_pattern": "FAKE_JOB_RECHARGE",
+      "observed_similarity_distribution": null
+    },
+    {
+      "id": "benign_meeting",
+      "language": "th",
+      "content": "พรุ่งนี้ประชุมทีมช่วงเช้า กรุณานำเอกสารโครงการมาด้วย",
+      "expected_candidate_pattern": null,
+      "observed_similarity_distribution": null
+    },
+    {
+      "id": "unrelated_normal",
+      "language": "th",
+      "content": "เย็นนี้ช่วยซื้อผักและนมกลับบ้านด้วย",
+      "expected_candidate_pattern": null,
+      "observed_similarity_distribution": null
+    }
+  ]
+}

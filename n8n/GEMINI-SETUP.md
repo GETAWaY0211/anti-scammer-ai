@@ -214,3 +214,11 @@ The workflow returns the API error envelope without prompts, raw Gemini response
 5. Deactivate the mock before reactivating **Text Analysis Main V2** because both public workflows use the same production webhook path.
 
 Repository contracts remain the source of truth. If the prompt or provider request format changes, regenerate and revalidate the embedded provider-workflow copy. If the schema, taxonomy, or scoring version changes, regenerate and revalidate the main workflow's strict validation and deterministic scoring copies instead of editing them independently in n8n.
+
+## 11. Phase 5D-C embedding workflows
+
+Import `generate-curated-pattern-embeddings-v1.json` and `semantic-pattern-lookup-v1.json`. On **Generate Gemini Embedding** and **Generate Query Embedding**, select an HTTP Header Auth credential whose header name is `x-goog-api-key`. The exported workflows contain no key. Select the local Postgres credential on their PostgreSQL nodes as well.
+
+Both workflows fix the model to `gemini-embedding-2` and output dimension to 768 inside trusted Code nodes. Do not add client-controlled model, dimension, vector, top-k, or threshold fields. The generator is manual and operates only on existing verified active curated seed rows. The lookup is a non-public Execute Workflow sub-workflow and does not persist runtime text or its embedding.
+
+Run the generator only after migrations `002` and `003` and `demo_scam_patterns.sql` have been applied. Then test the standalone lookup with the cases in `tests/fixtures/semantic-pattern-cases.json`. Provider calls can leave text and vector payloads in restricted n8n execution history, so minimize retention before production use. These workflows are not connected to Main V2 and do not affect public responses or scoring.

@@ -2,6 +2,21 @@
 
 This directory contains the text-and-image MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
+## Phase 5D-A — pgvector and semantic-pattern foundation
+
+The existing PostgreSQL 17 Compose service now uses `pgvector/pgvector:pg17`, while retaining the same environment variables, port, container name, network, and persistent `postgres_data` volume. Migration `database/migrations/002_enable_pgvector_and_create_scam_patterns.sql` enables the `vector` extension and creates relational `scam_patterns` and `scam_pattern_examples` tables for curated intelligence.
+
+This phase adds database capability only. It has no vector column, chosen embedding model or dimension, similarity lookup, or n8n runtime integration. Entity Intelligence remains the deterministic exact-match lookup used by Main V2; Semantic Pattern Intelligence remains offline curated data until a later phase. User analysis inputs must not be stored as pattern examples, and all n8n PostgreSQL operations remain read-only.
+
+## Phase 5D-C — standalone semantic pattern lookup
+
+Phase 5D-C adds two isolated workflows without connecting them to Main V2:
+
+- **Generate Curated Pattern Embeddings V1** is a manual operator workflow that embeds only verified active `development_curated_seed` examples and updates only their embedding fields.
+- **Semantic Pattern Lookup V1** accepts one internal text context, creates a transient query embedding, performs an exact parameterized pgvector cosine search over the top five verified active examples, and aggregates matches deterministically by pattern.
+
+Both use the trusted constant `gemini-embedding-2` with 768 dimensions. Runtime callers cannot select a model, vector, top-k, or similarity threshold. The lookup contains no Respond to Webhook node, writes no runtime data, exposes no raw vectors, and has no effect on risk scoring or the public API. Similarity distributions are observational only until threshold calibration in Phase 5D-D.
+
 ## Phase 5C — deterministic entity intelligence integration
 
 `n8n/workflows/entity-intelligence-lookup-v1.json` is now called by Text Analysis Main V2 for both text and image-extracted content. It deterministically extracts phone, bank-account, and domain entities and performs a read-only PostgreSQL lookup before Model Router V1. A database failure stops analysis with safe HTTP `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`; Phase 5C does not retry or continue without intelligence.
