@@ -133,6 +133,28 @@ Test **Semantic Pattern Lookup V1** as a sub-workflow with one `context` item. U
 
 Production privacy settings should minimize n8n execution-data retention: runtime text, provider request payloads, responses, and query vectors may be visible transiently in authorized execution data even though PostgreSQL never persists them.
 
+## Phase 5D-D semantic calibration harness
+
+Phase 5D-D keeps semantic retrieval isolated from Main and scoring. The synthetic dataset at `tests/fixtures/semantic-calibration-cases.json` contains 52 cases: multiple paraphrases for every verified pattern, cross-pattern messages, benign messages, legitimate scam-like warnings, sparse text, informal Thai, and mixed Thai/English. It contains no real PII, account, URL, or victim conversation.
+
+Run the harness as follows:
+
+1. Confirm all curated examples have embeddings.
+2. Import `n8n/workflows/semantic-pattern-calibration-v1.json`.
+3. In **Execute Semantic Pattern Lookup V1**, select the imported standalone lookup workflow.
+4. Smoke-test one case first: temporarily set the trusted `CALIBRATION_CASE_IDS` constant in **Load Calibration Cases** to `['prize_fee_02']`, save, and execute. **Build Semantic Lookup Input** must output exactly one top-level `context` object; the lookup should proceed past input validation and the result should correlate through `context.request_id = case_id`.
+5. Restore `CALIBRATION_CASE_IDS = []`, then execute all 52 cases. **Loop Over Calibration Cases** processes one case at a time to avoid provider concurrency spikes. A failed lookup remains an explicit failed calibration result with its case ID and expected pattern.
+6. Export that final node's JSON as `tests/results/semantic-calibration-raw.json` without copying any intermediate provider response or vector.
+7. From the repository root, run:
+
+```powershell
+node scripts/run-semantic-calibration.js --input tests/results/semantic-calibration-raw.json
+```
+
+The deterministic runner writes `tests/results/semantic-calibration.json` and `tests/results/semantic-calibration-summary.md`. It records top pattern, top-k ranking, best/average similarity, retrieved example count, top-one/top-two margin, Top-1 accuracy, Top-3 recall, observed ranges by case type, and ambiguous low-margin cases. The committed result remains `pending_runtime` until a real n8n execution is exported; no values are fabricated.
+
+The report's candidate bands summarize observed regions only. The diagnostic margin of `0.05` identifies close rankings and is not a scam threshold. Phase 5D-D does not select a threshold, create a risk indicator, persist runtime input, or affect the public API. Production calibration requires a larger representative dataset and false-positive review.
+
 ## Configure the n8n Postgres credential
 
 1. Import `n8n/workflows/entity-intelligence-lookup-v1.json`.

@@ -1,0 +1,224 @@
+{
+  "name": "Semantic Pattern Calibration V1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "5dd00000-0000-4000-8000-000000000001",
+      "name": "Manual Calibration Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const DATASET = {\"dataset_version\":\"1.0.0\",\"description\":\"Synthetic development-only calibration cases for standalone semantic scam-pattern retrieval. No real PII, accounts, URLs, or victim conversations.\",\"cases\":[{\"case_id\":\"bank_otp_01\",\"input_text\":\"มีคนอ้างว่าเป็นฝ่ายธนาคารและเร่งให้บอกรหัสยืนยันเพื่อหยุดรายการที่ไม่รู้จัก\",\"expected_pattern\":\"BANK_OTP_IMPERSONATION\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"อ้างธนาคาร ขอรหัสทางอ้อม และสร้างความเร่งด่วน\"},{\"case_id\":\"bank_otp_02\",\"input_text\":\"บัญชีถูกแจ้งว่ามีปัญหา เจ้าหน้าที่ขอให้อ่านรหัสใช้ครั้งเดียวจากโทรศัพท์ให้ฟังเดี๋ยวนี้\",\"expected_pattern\":\"BANK_OTP_IMPERSONATION\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ไม่ระบุชื่อองค์กร แต่ขอรหัสโดยตรง\"},{\"case_id\":\"bank_otp_03\",\"input_text\":\"เพื่อยกเลิกธุรกรรมต้องส่งโอทีพีกลับทางแชต มิฉะนั้นระบบจะล็อกบัญชี\",\"expected_pattern\":\"BANK_OTP_IMPERSONATION\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"สลับลำดับเหตุผลและคำขู่ล็อกบัญชี\"},{\"case_id\":\"prize_fee_01\",\"input_text\":\"ได้รับเลือกให้รับของรางวัลฟรี แต่ต้องจ่ายค่าจัดส่งล่วงหน้าก่อนยืนยันสิทธิ์\",\"expected_pattern\":\"PRIZE_FEE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"รางวัลฟรีผูกกับค่าจัดส่ง\"},{\"case_id\":\"prize_fee_02\",\"input_text\":\"มีข้อความแสดงความยินดีและขอค่าภาษีรางวัลก่อนที่ทีมงานจะส่งของให้\",\"expected_pattern\":\"PRIZE_FEE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ใช้ภาษีเป็นค่าธรรมเนียม\"},{\"case_id\":\"prize_fee_03\",\"input_text\":\"สิทธิ์ผู้โชคดีกำลังหมดเวลา ต้องชำระค่าดำเนินการวันนี้จึงจะรับรางวัลได้\",\"expected_pattern\":\"PRIZE_FEE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"เพิ่มแรงกดดันด้านเวลา\"},{\"case_id\":\"job_recharge_01\",\"input_text\":\"งานออนไลน์แจ้งให้เติมเครดิตก่อนเปิดภารกิจรอบถัดไปและถอนค่าจ้าง\",\"expected_pattern\":\"FAKE_JOB_RECHARGE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"เติมเครดิตเพื่อถอนรายได้\"},{\"case_id\":\"job_recharge_02\",\"input_text\":\"ผู้ดูแลงานบอกว่ายอดในระบบติดลบ ต้องโอนเงินสำรองเพิ่มจึงจะรับคอมมิชชั่นได้\",\"expected_pattern\":\"FAKE_JOB_RECHARGE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"อ้างยอดติดลบและคอมมิชชั่น\"},{\"case_id\":\"job_recharge_03\",\"input_text\":\"สมัครงานจากบ้านแล้วถูกเรียกเก็บค่าอุปกรณ์ พร้อมสัญญาว่าจะคืนเงินหลังทำภารกิจครบ\",\"expected_pattern\":\"FAKE_JOB_RECHARGE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ค่าก่อนเริ่มงานและสัญญาคืนเงิน\"},{\"case_id\":\"investment_return_01\",\"input_text\":\"ชวนลงทุนโดยยืนยันว่าเงินต้นปลอดภัยและได้กำไรแน่นอนทุกเดือน\",\"expected_pattern\":\"INVESTMENT_GUARANTEED_RETURN\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"รับประกันเงินต้นและกำไร\"},{\"case_id\":\"investment_return_02\",\"input_text\":\"ผู้แนะนำบอกว่าไม่มีทางขาดทุน ขอให้รีบฝากเงินก่อนปิดรอบลงทุน\",\"expected_pattern\":\"INVESTMENT_GUARANTEED_RETURN\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ไม่มีความเสี่ยงและเร่งโอน\"},{\"case_id\":\"investment_return_03\",\"input_text\":\"เสนอให้ผู้เชี่ยวชาญเทรดแทน พร้อมการันตีคืนทุนและผลตอบแทนสูง\",\"expected_pattern\":\"INVESTMENT_GUARANTEED_RETURN\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"อ้างผู้เชี่ยวชาญและการันตี\"},{\"case_id\":\"parcel_fee_01\",\"input_text\":\"พัสดุค้างที่ศูนย์และจะส่งต่อเมื่อผู้รับจ่ายค่าปลดปล่อยล่วงหน้า\",\"expected_pattern\":\"PARCEL_FEE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ค่าปลดปล่อยพัสดุ\"},{\"case_id\":\"parcel_fee_02\",\"input_text\":\"แจ้งว่าที่อยู่จัดส่งผิด ต้องชำระค่าดำเนินการใหม่ก่อนแก้ข้อมูล\",\"expected_pattern\":\"PARCEL_FEE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"อ้างที่อยู่ผิดและเก็บค่าธรรมเนียม\"},{\"case_id\":\"parcel_fee_03\",\"input_text\":\"ของกำลังถูกส่งคืนหากไม่จ่ายค่าฝากเก็บภายในวันนี้\",\"expected_pattern\":\"PARCEL_FEE\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ขู่ส่งคืนและเร่งชำระ\"},{\"case_id\":\"remote_support_01\",\"input_text\":\"ฝ่ายช่วยเหลือบอกให้ติดตั้งแอปควบคุมเครื่องแล้วส่งรหัสเชื่อมต่อให้ทันที\",\"expected_pattern\":\"REMOTE_SUPPORT\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ติดตั้งเครื่องมือควบคุมระยะไกล\"},{\"case_id\":\"remote_support_02\",\"input_text\":\"อ้างว่าต้องแชร์หน้าจอและเปิดสิทธิ์ควบคุมโทรศัพท์เพื่อดำเนินการคืนเงิน\",\"expected_pattern\":\"REMOTE_SUPPORT\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"แชร์หน้าจอเพื่อคืนเงิน\"},{\"case_id\":\"remote_support_03\",\"input_text\":\"มีคำเตือนว่าเครื่องติดไวรัสและสั่งให้ปิดระบบป้องกันเพื่อให้ช่างเข้ามาแก้ไข\",\"expected_pattern\":\"REMOTE_SUPPORT\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ปิดความปลอดภัยและให้ควบคุม\"},{\"case_id\":\"government_threat_01\",\"input_text\":\"ผู้โทรอ้างเป็นเจ้าหน้าที่รัฐและขู่ว่าจะออกหมายจับหากไม่ให้ข้อมูลทันที\",\"expected_pattern\":\"GOVERNMENT_THREAT\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"อ้างอำนาจและขู่จับ\"},{\"case_id\":\"government_threat_02\",\"input_text\":\"ข้อความแจ้งว่าบัญชีเกี่ยวข้องกับคดี ต้องโอนเงินไปตรวจสอบเพื่อไม่ให้ถูกอายัด\",\"expected_pattern\":\"GOVERNMENT_THREAT\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ขู่คดีและเรียกโอนเงิน\"},{\"case_id\":\"government_threat_03\",\"input_text\":\"มีคนอ้างคำสั่งทางกฎหมายและเร่งให้ทำตามขั้นตอนลับผ่านแชตเพื่อยุติเรื่อง\",\"expected_pattern\":\"GOVERNMENT_THREAT\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"คำสั่งกฎหมายและการดำเนินการลับ\"},{\"case_id\":\"romance_emergency_01\",\"input_text\":\"คนรักที่รู้จักทางออนไลน์บอกว่าเกิดอุบัติเหตุต่างประเทศและขอเงินค่ารักษาด่วน\",\"expected_pattern\":\"ROMANCE_EMERGENCY\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"ความสัมพันธ์ออนไลน์และเหตุฉุกเฉิน\"},{\"case_id\":\"romance_emergency_02\",\"input_text\":\"หลังคุยกันมานาน อีกฝ่ายอ้างว่ากระเป๋าหายและขอยืมเงินเพื่อเดินทางกลับ\",\"expected_pattern\":\"ROMANCE_EMERGENCY\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"สร้างความสัมพันธ์ก่อนขอเงิน\"},{\"case_id\":\"romance_emergency_03\",\"input_text\":\"คนที่สัญญาว่าจะมาเจอแจ้งว่าครอบครัวมีปัญหากะทันหันและต้องการเงินช่วยเหลือทันที\",\"expected_pattern\":\"ROMANCE_EMERGENCY\",\"case_type\":\"pattern_paraphrase\",\"notes\":\"เลื่อนการพบและสร้างเหตุครอบครัว\"},{\"case_id\":\"cross_bank_remote\",\"input_text\":\"ฝ่ายธนาคารอ้างว่าบัญชีถูกเจาะ ให้ติดตั้งแอปช่วยเหลือและอ่านรหัสยืนยันเพื่อหยุดรายการ\",\"expected_pattern\":\"BANK_OTP_IMPERSONATION\",\"case_type\":\"cross_pattern\",\"notes\":\"มีทั้ง bank OTP และ remote support; ประเมิน bank OTP เป็น pattern หลัก\"},{\"case_id\":\"cross_prize_otp\",\"input_text\":\"แจ้งว่าได้รางวัลและต้องส่งรหัสยืนยันจากโทรศัพท์พร้อมจ่ายค่าจัดส่งก่อนรับของ\",\"expected_pattern\":\"PRIZE_FEE\",\"case_type\":\"cross_pattern\",\"notes\":\"มี prize fee และ credential request\"},{\"case_id\":\"cross_job_investment\",\"input_text\":\"งานพิเศษให้เติมเงินเข้าพอร์ตที่รับประกันกำไร แล้วทำภารกิจเพื่อถอนค่าจ้าง\",\"expected_pattern\":\"FAKE_JOB_RECHARGE\",\"case_type\":\"cross_pattern\",\"notes\":\"มี job recharge และ guaranteed return\"},{\"case_id\":\"cross_parcel_otp\",\"input_text\":\"พัสดุถูกระงับ ต้องจ่ายค่าธรรมเนียมและแจ้งรหัสใช้ครั้งเดียวเพื่อยืนยันผู้รับ\",\"expected_pattern\":\"PARCEL_FEE\",\"case_type\":\"cross_pattern\",\"notes\":\"มี parcel fee และ OTP\"},{\"case_id\":\"cross_government_payment\",\"input_text\":\"เจ้าหน้าที่รัฐขู่อายัดทรัพย์และสั่งให้โอนค่าตรวจสอบภายในวันนี้\",\"expected_pattern\":\"GOVERNMENT_THREAT\",\"case_type\":\"cross_pattern\",\"notes\":\"มี authority threat และ payment\"},{\"case_id\":\"cross_romance_investment\",\"input_text\":\"คนรักออนไลน์ขอให้ช่วยลงทุนในโครงการที่การันตีกำไรเพื่อแก้ปัญหาเงินฉุกเฉิน\",\"expected_pattern\":\"ROMANCE_EMERGENCY\",\"case_type\":\"cross_pattern\",\"notes\":\"มี romance emergency และ investment claim\"},{\"case_id\":\"benign_meeting\",\"input_text\":\"พรุ่งนี้ประชุมทีมช่วงเช้า กรุณานำเอกสารโครงการมาด้วย\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"ข้อความนัดหมายงานทั่วไป\"},{\"case_id\":\"benign_grocery\",\"input_text\":\"เย็นนี้ช่วยซื้อผัก ผลไม้ และนมกลับบ้านด้วย\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"ข้อความครอบครัวทั่วไป\"},{\"case_id\":\"benign_weather\",\"input_text\":\"วันนี้ฝนตกหนัก อย่าลืมพกร่มและเดินทางอย่างระมัดระวัง\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"คำเตือนสภาพอากาศ\"},{\"case_id\":\"benign_homework\",\"input_text\":\"ส่งการบ้านเรียบร้อยแล้ว ครูจะตรวจและแจ้งข้อเสนอแนะสัปดาห์หน้า\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"การศึกษา ไม่มีคำขอเงิน\"},{\"case_id\":\"benign_booking\",\"input_text\":\"ยืนยันการจองโต๊ะแล้ว สามารถแจ้งเปลี่ยนเวลาได้ที่ร้านโดยตรง\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"การจองทั่วไป\"},{\"case_id\":\"benign_delivery\",\"input_text\":\"ของที่สั่งถึงแล้ว วางไว้ที่จุดรับของตามที่แจ้ง\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"แจ้งส่งของโดยไม่มีค่าธรรมเนียม\"},{\"case_id\":\"benign_team_update\",\"input_text\":\"งานส่วนแรกเสร็จแล้ว เหลือทบทวนเอกสารก่อนส่งให้ทีม\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"อัปเดตงานทั่วไป\"},{\"case_id\":\"benign_friend_chat\",\"input_text\":\"เสาร์นี้ว่างไหม อยากชวนไปกินข้าวและคุยเรื่องทริป\",\"expected_pattern\":null,\"case_type\":\"benign\",\"notes\":\"บทสนทนาเพื่อนทั่วไป\"},{\"case_id\":\"borderline_bank_warning\",\"input_text\":\"ธนาคารไม่มีนโยบายขอรหัสโอทีพี กรุณาอย่าส่งรหัสให้ผู้อื่นและติดต่อช่องทางทางการ\",\"expected_pattern\":null,\"case_type\":\"borderline_legitimate\",\"notes\":\"คำเตือนที่มีคำ scam-like แต่ห้ามส่ง OTP\"},{\"case_id\":\"borderline_government_notice\",\"input_text\":\"ได้รับหนังสือแจ้งจากหน่วยงาน กรุณาตรวจสอบเลขอ้างอิงผ่านเว็บไซต์ทางการโดยไม่ต้องโอนเงิน\",\"expected_pattern\":null,\"case_type\":\"borderline_legitimate\",\"notes\":\"ประกาศทางการพร้อมแนวทางตรวจสอบ\"},{\"case_id\":\"borderline_parcel_cod\",\"input_text\":\"พัสดุเก็บเงินปลายทาง โปรดตรวจชื่อผู้ส่งและปฏิเสธรับได้หากไม่ได้สั่ง\",\"expected_pattern\":null,\"case_type\":\"borderline_legitimate\",\"notes\":\"พัสดุถูกต้องและให้สิทธิ์ปฏิเสธ\"},{\"case_id\":\"borderline_it_support\",\"input_text\":\"ฝ่ายไอทีนัดช่วยติดตั้งโปรแกรมผ่านหน้าจอร่วมกันตามใบงานที่คุณเปิดไว้\",\"expected_pattern\":null,\"case_type\":\"borderline_legitimate\",\"notes\":\"remote support ที่ผู้ใช้เริ่มและมีใบงาน\"},{\"case_id\":\"borderline_investment_warning\",\"input_text\":\"การลงทุนมีความเสี่ยงและไม่รับประกันผลตอบแทน โปรดอ่านข้อมูลก่อนตัดสินใจ\",\"expected_pattern\":null,\"case_type\":\"borderline_legitimate\",\"notes\":\"คำเตือนลงทุนที่ไม่รับประกัน\"},{\"case_id\":\"borderline_prize_terms\",\"input_text\":\"กิจกรรมแจกของรางวัลมีเงื่อนไขชัดเจนและไม่มีการเรียกเก็บค่าธรรมเนียมจากผู้รับ\",\"expected_pattern\":null,\"case_type\":\"borderline_legitimate\",\"notes\":\"กิจกรรมจริงที่ย้ำว่าไม่มีค่าธรรมเนียม\"},{\"case_id\":\"sparse_urgent\",\"input_text\":\"ด่วนมาก\",\"expected_pattern\":null,\"case_type\":\"short_sparse\",\"notes\":\"สั้นเกินกว่าจะระบุ pattern\"},{\"case_id\":\"sparse_call_back\",\"input_text\":\"ช่วยโทรกลับด้วย\",\"expected_pattern\":null,\"case_type\":\"short_sparse\",\"notes\":\"คำขอทั่วไปที่ไม่มีบริบท\"},{\"case_id\":\"sparse_parcel\",\"input_text\":\"มีพัสดุ\",\"expected_pattern\":null,\"case_type\":\"short_sparse\",\"notes\":\"กล่าวถึงพัสดุแต่ไม่มีคำขอจ่าย\"},{\"case_id\":\"sparse_received\",\"input_text\":\"ได้รับเงินแล้ว\",\"expected_pattern\":null,\"case_type\":\"short_sparse\",\"notes\":\"ข้อความยืนยันสั้นทั่วไป\"},{\"case_id\":\"typo_bank\",\"input_text\":\"แบงค์โทรมาบอกไห้ส่งโค้ดยืนยันด่วน ไม่งั้นบันชีโดนล้อก\",\"expected_pattern\":\"BANK_OTP_IMPERSONATION\",\"case_type\":\"typo_informal_thai\",\"notes\":\"ภาษาไทยไม่เป็นทางการและสะกดผิด\"},{\"case_id\":\"typo_job\",\"input_text\":\"งานกดไล้ เติมตังก่อนนะ เด่วทำครบละถอนได้หมด\",\"expected_pattern\":\"FAKE_JOB_RECHARGE\",\"case_type\":\"typo_informal_thai\",\"notes\":\"ภาษาพูดและคำย่อ\"},{\"case_id\":\"mixed_remote\",\"input_text\":\"Support แจ้งว่า device มีปัญหา ให้ install แอปแล้ว share screen ตอนนี้\",\"expected_pattern\":\"REMOTE_SUPPORT\",\"case_type\":\"mixed_thai_english\",\"notes\":\"ข้อความไทยปนอังกฤษเกี่ยวกับ remote access\"},{\"case_id\":\"mixed_investment\",\"input_text\":\"ลงทุน package นี้ guaranteed profit ไม่มี loss รีบ transfer ก่อนปิดรอบ\",\"expected_pattern\":\"INVESTMENT_GUARANTEED_RETURN\",\"case_type\":\"mixed_thai_english\",\"notes\":\"ข้อความไทยปนอังกฤษเกี่ยวกับผลตอบแทน\"}]};\n// Trusted operator-only filter. Empty means all cases; for a smoke test use ['prize_fee_02'].\nconst CALIBRATION_CASE_IDS = [];\nconst requested = new Set(CALIBRATION_CASE_IDS);\nconst selectedCases = requested.size === 0\n  ? DATASET.cases\n  : DATASET.cases.filter((testCase) => requested.has(testCase.case_id));\nif (requested.size > 0 && selectedCases.length !== requested.size) throw new Error('Unknown calibration case_id in operator filter.');\nreturn selectedCases.map((testCase) => ({\n  json: {\n    case_id: testCase.case_id,\n    input_text: testCase.input_text,\n    expected_pattern: testCase.expected_pattern,\n    case_type: testCase.case_type,\n    notes: testCase.notes,\n    context: {\n      request_id: testCase.case_id,\n      analysis_id: 'calibration-' + testCase.case_id,\n      content: testCase.input_text,\n      language: 'th'\n    }\n  }\n}));"
+      },
+      "id": "5dd00000-0000-4000-8000-000000000002",
+      "name": "Load Calibration Cases",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Generated from tests/fixtures/semantic-calibration-cases.json. Rebuild this workflow after changing the dataset."
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const calibration = item.json || {};\n  if (\n    typeof calibration.case_id !== 'string' || !calibration.case_id ||\n    typeof calibration.input_text !== 'string' || !calibration.input_text.trim()\n  ) throw new Error('Calibration case cannot be adapted to semantic lookup input.');\n  return {\n    json: {\n      context: {\n        request_id: calibration.case_id,\n        analysis_id: 'calibration-' + calibration.case_id,\n        content: calibration.input_text,\n        language: 'th'\n      }\n    }\n  };\n});"
+      },
+      "id": "5dd00000-0000-4000-8000-000000000006",
+      "name": "Build Semantic Lookup Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Constructs a fresh allowlisted object containing only context. Calibration labels and notes never enter the production semantic lookup."
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "5dd00000-0000-4000-8000-000000000007",
+      "name": "Loop Over Calibration Cases",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        120,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Processes one case at a time to preserve deterministic correlation and avoid provider concurrency spikes."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Semantic Pattern Lookup V1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "5dd00000-0000-4000-8000-000000000003",
+      "name": "Execute Semantic Pattern Lookup V1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        380,
+        100
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "After import, select Semantic Pattern Lookup V1. One synthetic calibration case produces one normalized lookup result."
+    },
+    {
+      "parameters": {
+        "jsCode": "const lookup = JSON.parse(JSON.stringify($input.first().json || {}));\nconst request = $('Loop Over Calibration Cases').item.json;\nconst caseId = request && request.context && request.context.request_id;\nif (typeof caseId !== 'string' || !caseId) throw new Error('Calibration correlation key is missing.');\nconst returnedId = lookup.context && lookup.context.request_id\n  ? lookup.context.request_id\n  : lookup.public_response && lookup.public_response.request_id\n    ? lookup.public_response.request_id\n    : null;\nif (returnedId !== null && returnedId !== caseId) throw new Error('Semantic lookup correlation key mismatch.');\nreturn [{ json: { case_id: caseId, lookup_result: lookup } }];"
+      },
+      "id": "5dd00000-0000-4000-8000-000000000008",
+      "name": "Reattach Calibration Correlation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        100
+      ],
+      "notesInFlow": true,
+      "notes": "Reattaches only case_id after the strict production sub-workflow returns. Evaluation labels remain in Load Calibration Cases."
+    },
+    {
+      "parameters": {
+        "jsCode": "const definitions = $('Load Calibration Cases').all().map((item) => item.json);\nconst definitionById = new Map(definitions.map((item) => [item.case_id, item]));\nconst results = $input.all().map((item) => item.json || {}).map((correlated) => {\n  const caseId = correlated.case_id;\n  const lookup = correlated.lookup_result || {};\n  const definition = definitionById.get(caseId);\n  if (!definition) throw new Error('Semantic calibration returned an unknown case.');\n  if (lookup.ok !== true || !lookup.semantic_intelligence || !Array.isArray(lookup.semantic_intelligence.patterns)) {\n    return {\n      case_id: caseId,\n      input_text: definition.input_text,\n      expected_pattern: definition.expected_pattern,\n      case_type: definition.case_type,\n      notes: definition.notes,\n      ok: false,\n      patterns: [],\n      status_code: Number.isInteger(Number(lookup.status_code)) ? Number(lookup.status_code) : null,\n      semantic_error_code: lookup.public_response && lookup.public_response.error && typeof lookup.public_response.error.code === 'string'\n        ? lookup.public_response.error.code\n        : 'SEMANTIC_LOOKUP_FAILED',\n      error_category: lookup.internal_diagnostics && lookup.internal_diagnostics.semantic_lookup\n        ? lookup.internal_diagnostics.semantic_lookup.error_category || 'lookup_failed'\n        : 'lookup_failed'\n    };\n  }\n  return {\n    case_id: caseId,\n    input_text: definition.input_text,\n    expected_pattern: definition.expected_pattern,\n    case_type: definition.case_type,\n    notes: definition.notes,\n    ok: true,\n    patterns: lookup.semantic_intelligence.patterns.map((pattern) => ({\n      pattern_code: pattern.pattern_code,\n      category: pattern.category,\n      best_similarity: pattern.best_similarity,\n      average_similarity: pattern.average_similarity,\n      matched_example_count: pattern.matched_example_count\n    }))\n  };\n}).sort((a, b) => a.case_id < b.case_id ? -1 : a.case_id > b.case_id ? 1 : 0);\nif (results.length !== definitions.length) throw new Error('Semantic calibration result count mismatch.');\nreturn [{ json: { dataset_version: '1.0.0', results } }];"
+      },
+      "id": "5dd00000-0000-4000-8000-000000000004",
+      "name": "Collect Calibration Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Phase 5D-D calibration harness\nRuns the synthetic repository dataset through Semantic Pattern Lookup V1. Export the single normalized output as `tests/results/semantic-calibration-raw.json`, then run `node scripts/run-semantic-calibration.js`. No webhook, database write, Main integration, scoring, or threshold is present.",
+        "height": 250,
+        "width": 700,
+        "color": 5
+      },
+      "id": "5dd00000-0000-4000-8000-000000000005",
+      "name": "Phase 5D-D Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        -340
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Calibration Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Calibration Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Calibration Cases": {
+      "main": [
+        [
+          {
+            "node": "Build Semantic Lookup Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Semantic Lookup Input": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Calibration Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Calibration Cases": {
+      "main": [
+        [
+          {
+            "node": "Collect Calibration Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Semantic Pattern Lookup V1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Semantic Pattern Lookup V1": {
+      "main": [
+        [
+          {
+            "node": "Reattach Calibration Correlation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reattach Calibration Correlation": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Calibration Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "versionId": "5dd00000-0000-4000-8000-000000000099",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

@@ -17,6 +17,16 @@ Phase 5D-C adds two isolated workflows without connecting them to Main V2:
 
 Both use the trusted constant `gemini-embedding-2` with 768 dimensions. Runtime callers cannot select a model, vector, top-k, or similarity threshold. The lookup contains no Respond to Webhook node, writes no runtime data, exposes no raw vectors, and has no effect on risk scoring or the public API. Similarity distributions are observational only until threshold calibration in Phase 5D-D.
 
+## Phase 5D-D — calibration harness
+
+`Semantic Pattern Calibration V1` is a manual, non-public workflow generated from the 52-case synthetic dataset. **Build Semantic Lookup Input** creates a fresh allowlisted `{ context }` envelope, so calibration labels never enter the strict production lookup. `case_id` is copied to `context.request_id`, then **Reattach Calibration Correlation** joins success or failure back to the original expected pattern. A batch-size-one loop calls only `Semantic Pattern Lookup V1` and avoids concurrent provider requests. After import, select the lookup workflow in **Execute Semantic Pattern Lookup V1**.
+
+For a one-case smoke test, set the trusted `CALIBRATION_CASE_IDS` constant in **Load Calibration Cases** to `['prize_fee_02']`. Restore it to `[]` before the full 52-case run. Do not add calibration fields to the production lookup envelope or loosen its validator.
+
+Export the final normalized output to `tests/results/semantic-calibration-raw.json`, then run `node scripts/run-semantic-calibration.js`. The runner deterministically produces the machine-readable result and Markdown summary under `tests/results/`. Run `node scripts/build-semantic-calibration-workflow.js` after editing the dataset; `--check` verifies that the exported workflow copy is current.
+
+This phase remains retrieval evaluation only. Main V2, taxonomy, scoring, and the public API are unchanged. Candidate similarity bands are explicitly provisional; no production-safe threshold can be inferred from this small synthetic dataset alone.
+
 ## Phase 5C — deterministic entity intelligence integration
 
 `n8n/workflows/entity-intelligence-lookup-v1.json` is now called by Text Analysis Main V2 for both text and image-extracted content. It deterministically extracts phone, bank-account, and domain entities and performs a read-only PostgreSQL lookup before Model Router V1. A database failure stops analysis with safe HTTP `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`; Phase 5C does not retry or continue without intelligence.
