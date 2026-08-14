@@ -1,0 +1,575 @@
+{
+  "scoring_version": "1.1.0",
+  "taxonomy_version": "1.1.0",
+  "description": "Deterministic risk scoring for Anti-Scammer AI with backend-derived database intelligence indicators. Severity and weight remain independent explicit configuration values.",
+  "score_range": {
+    "min": 0,
+    "max": 100
+  },
+  "final_score_cap": 100,
+  "risk_levels": [
+    {
+      "level": "low",
+      "min": 0,
+      "max": 29
+    },
+    {
+      "level": "medium",
+      "min": 30,
+      "max": 59
+    },
+    {
+      "level": "high",
+      "min": 60,
+      "max": 79
+    },
+    {
+      "level": "critical",
+      "min": 80,
+      "max": 100
+    }
+  ],
+  "human_review": {
+    "confidence_below": 0.65,
+    "unsupported_indicator": true,
+    "conflicting_evidence": true,
+    "quality_indicator_codes": [
+      "LOW_IMAGE_QUALITY",
+      "LOW_AUDIO_QUALITY"
+    ],
+    "always_review_indicator_codes": [
+      "INSUFFICIENT_CONTEXT",
+      "REPORTED_SUSPICIOUS_ENTITY"
+    ],
+    "possible_prompt_injection": false,
+    "invalid_confidence": true,
+    "malformed_supported_indicator": true,
+    "severity_mismatch": true
+  },
+  "specificity_rules": [
+    {
+      "generic_code": "CREDENTIAL_REQUEST",
+      "prefer_codes": [
+        "OTP_REQUEST",
+        "PASSWORD_REQUEST",
+        "CARD_DATA_REQUEST",
+        "VERIFICATION_CODE_FORWARDING"
+      ],
+      "evidence_match": "normalized_equal_or_containment",
+      "description": "Suppress the generic credential request when a more specific credential indicator describes the same evidence."
+    }
+  ],
+  "scoring_groups": [
+    {
+      "id": "credential_access",
+      "description": "Credential, identity, card, and account-access requests.",
+      "score_cap": 75,
+      "members": [
+        "OTP_REQUEST",
+        "PASSWORD_REQUEST",
+        "CREDENTIAL_REQUEST",
+        "CARD_DATA_REQUEST",
+        "IDENTITY_DATA_REQUEST",
+        "VERIFICATION_CODE_FORWARDING"
+      ]
+    },
+    {
+      "id": "financial_request",
+      "description": "Payment requests and movement of money.",
+      "score_cap": 70,
+      "members": [
+        "PAYMENT_REQUEST",
+        "URGENT_PAYMENT",
+        "ADVANCE_FEE_REQUEST",
+        "UNUSUAL_PAYMENT_METHOD",
+        "MONEY_MULE_REQUEST",
+        "REFUND_OVERPAYMENT"
+      ]
+    },
+    {
+      "id": "pressure_manipulation",
+      "description": "Urgency, threats, secrecy, isolation, and emotional pressure.",
+      "score_cap": 45,
+      "members": [
+        "URGENCY_PRESSURE",
+        "THREAT_OR_INTIMIDATION",
+        "SECRECY_REQUEST",
+        "ISOLATION_FROM_TRUSTED_CONTACTS",
+        "EMOTIONAL_MANIPULATION",
+        "SCARCITY_PRESSURE"
+      ]
+    },
+    {
+      "id": "impersonation",
+      "description": "Claims of false organizational, authority, executive, or contact identity.",
+      "score_cap": 45,
+      "members": [
+        "BANK_IMPERSONATION",
+        "GOVERNMENT_IMPERSONATION",
+        "COMPANY_IMPERSONATION",
+        "EXECUTIVE_IMPERSONATION",
+        "KNOWN_CONTACT_IMPERSONATION",
+        "FAKE_AUTHORITY_CLAIM"
+      ]
+    },
+    {
+      "id": "device_access",
+      "description": "Suspicious links, application installation, and device-control requests.",
+      "score_cap": 80,
+      "members": [
+        "SUSPICIOUS_LINK",
+        "URL_SHORTENER",
+        "APK_INSTALL_REQUEST",
+        "REMOTE_ACCESS_REQUEST",
+        "SCREEN_SHARE_REQUEST",
+        "DISABLE_SECURITY_REQUEST",
+        "MOVE_OFF_PLATFORM"
+      ]
+    },
+    {
+      "id": "investment_earnings",
+      "description": "Investment, task, recruitment, job, and earnings patterns.",
+      "score_cap": 70,
+      "members": [
+        "GUARANTEED_RETURN",
+        "UNREALISTIC_RETURN",
+        "PAY_TO_UNLOCK_EARNINGS",
+        "TASK_RECHARGE_REQUEST",
+        "FAKE_JOB_FEE",
+        "PRESSURE_TO_RECRUIT"
+      ]
+    },
+    {
+      "id": "commerce_delivery",
+      "description": "Delivery, marketplace, prize, and escrow patterns.",
+      "score_cap": 60,
+      "members": [
+        "FAKE_DELIVERY_FEE",
+        "OFF_PLATFORM_PAYMENT",
+        "PRIZE_FEE_REQUEST",
+        "UNSOLICITED_PRIZE",
+        "FAKE_ESCROW_OR_MIDDLEMAN"
+      ]
+    },
+    {
+      "id": "database_intelligence",
+      "description": "Authoritative backend-derived matches from the trusted scam-entity intelligence database.",
+      "score_cap": 80,
+      "members": [
+        "KNOWN_SCAM_PHONE",
+        "KNOWN_SCAM_BANK_ACCOUNT",
+        "KNOWN_SCAM_DOMAIN",
+        "REPORTED_SUSPICIOUS_ENTITY"
+      ]
+    }
+  ],
+  "indicator_weights": [
+    {
+      "code": "OTP_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "credential_access"
+    },
+    {
+      "code": "PASSWORD_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "credential_access"
+    },
+    {
+      "code": "CREDENTIAL_REQUEST",
+      "severity": "critical",
+      "weight": 42,
+      "group": "credential_access"
+    },
+    {
+      "code": "CARD_DATA_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "credential_access"
+    },
+    {
+      "code": "IDENTITY_DATA_REQUEST",
+      "severity": "high",
+      "weight": 18,
+      "group": "credential_access"
+    },
+    {
+      "code": "VERIFICATION_CODE_FORWARDING",
+      "severity": "critical",
+      "weight": 60,
+      "group": "credential_access"
+    },
+    {
+      "code": "PAYMENT_REQUEST",
+      "severity": "medium",
+      "weight": 10,
+      "group": "financial_request"
+    },
+    {
+      "code": "URGENT_PAYMENT",
+      "severity": "high",
+      "weight": 14,
+      "group": "financial_request"
+    },
+    {
+      "code": "ADVANCE_FEE_REQUEST",
+      "severity": "high",
+      "weight": 26,
+      "group": "financial_request"
+    },
+    {
+      "code": "UNUSUAL_PAYMENT_METHOD",
+      "severity": "high",
+      "weight": 18,
+      "group": "financial_request"
+    },
+    {
+      "code": "MONEY_MULE_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "financial_request"
+    },
+    {
+      "code": "REFUND_OVERPAYMENT",
+      "severity": "high",
+      "weight": 28,
+      "group": "financial_request"
+    },
+    {
+      "code": "URGENCY_PRESSURE",
+      "severity": "high",
+      "weight": 8,
+      "group": "pressure_manipulation"
+    },
+    {
+      "code": "THREAT_OR_INTIMIDATION",
+      "severity": "critical",
+      "weight": 28,
+      "group": "pressure_manipulation"
+    },
+    {
+      "code": "SECRECY_REQUEST",
+      "severity": "high",
+      "weight": 10,
+      "group": "pressure_manipulation"
+    },
+    {
+      "code": "ISOLATION_FROM_TRUSTED_CONTACTS",
+      "severity": "high",
+      "weight": 14,
+      "group": "pressure_manipulation"
+    },
+    {
+      "code": "EMOTIONAL_MANIPULATION",
+      "severity": "medium",
+      "weight": 8,
+      "group": "pressure_manipulation"
+    },
+    {
+      "code": "SCARCITY_PRESSURE",
+      "severity": "medium",
+      "weight": 7,
+      "group": "pressure_manipulation"
+    },
+    {
+      "code": "BANK_IMPERSONATION",
+      "severity": "high",
+      "weight": 18,
+      "group": "impersonation"
+    },
+    {
+      "code": "GOVERNMENT_IMPERSONATION",
+      "severity": "high",
+      "weight": 20,
+      "group": "impersonation"
+    },
+    {
+      "code": "COMPANY_IMPERSONATION",
+      "severity": "high",
+      "weight": 16,
+      "group": "impersonation"
+    },
+    {
+      "code": "EXECUTIVE_IMPERSONATION",
+      "severity": "high",
+      "weight": 18,
+      "group": "impersonation"
+    },
+    {
+      "code": "KNOWN_CONTACT_IMPERSONATION",
+      "severity": "high",
+      "weight": 18,
+      "group": "impersonation"
+    },
+    {
+      "code": "FAKE_AUTHORITY_CLAIM",
+      "severity": "high",
+      "weight": 18,
+      "group": "impersonation"
+    },
+    {
+      "code": "SUSPICIOUS_LINK",
+      "severity": "high",
+      "weight": 26,
+      "group": "device_access"
+    },
+    {
+      "code": "URL_SHORTENER",
+      "severity": "medium",
+      "weight": 6,
+      "group": "device_access"
+    },
+    {
+      "code": "APK_INSTALL_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "device_access"
+    },
+    {
+      "code": "REMOTE_ACCESS_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "device_access"
+    },
+    {
+      "code": "SCREEN_SHARE_REQUEST",
+      "severity": "high",
+      "weight": 18,
+      "group": "device_access"
+    },
+    {
+      "code": "DISABLE_SECURITY_REQUEST",
+      "severity": "critical",
+      "weight": 60,
+      "group": "device_access"
+    },
+    {
+      "code": "MOVE_OFF_PLATFORM",
+      "severity": "medium",
+      "weight": 8,
+      "group": "device_access"
+    },
+    {
+      "code": "GUARANTEED_RETURN",
+      "severity": "high",
+      "weight": 22,
+      "group": "investment_earnings"
+    },
+    {
+      "code": "UNREALISTIC_RETURN",
+      "severity": "high",
+      "weight": 20,
+      "group": "investment_earnings"
+    },
+    {
+      "code": "PAY_TO_UNLOCK_EARNINGS",
+      "severity": "high",
+      "weight": 28,
+      "group": "investment_earnings"
+    },
+    {
+      "code": "TASK_RECHARGE_REQUEST",
+      "severity": "high",
+      "weight": 28,
+      "group": "investment_earnings"
+    },
+    {
+      "code": "FAKE_JOB_FEE",
+      "severity": "high",
+      "weight": 26,
+      "group": "investment_earnings"
+    },
+    {
+      "code": "PRESSURE_TO_RECRUIT",
+      "severity": "medium",
+      "weight": 8,
+      "group": "investment_earnings"
+    },
+    {
+      "code": "FAKE_DELIVERY_FEE",
+      "severity": "high",
+      "weight": 22,
+      "group": "commerce_delivery"
+    },
+    {
+      "code": "OFF_PLATFORM_PAYMENT",
+      "severity": "high",
+      "weight": 15,
+      "group": "commerce_delivery"
+    },
+    {
+      "code": "PRIZE_FEE_REQUEST",
+      "severity": "high",
+      "weight": 24,
+      "group": "commerce_delivery"
+    },
+    {
+      "code": "UNSOLICITED_PRIZE",
+      "severity": "medium",
+      "weight": 10,
+      "group": "commerce_delivery"
+    },
+    {
+      "code": "FAKE_ESCROW_OR_MIDDLEMAN",
+      "severity": "high",
+      "weight": 28,
+      "group": "commerce_delivery"
+    },
+    {
+      "code": "KNOWN_SCAM_PHONE",
+      "severity": "high",
+      "weight": 35,
+      "group": "database_intelligence"
+    },
+    {
+      "code": "KNOWN_SCAM_BANK_ACCOUNT",
+      "severity": "critical",
+      "weight": 45,
+      "group": "database_intelligence"
+    },
+    {
+      "code": "KNOWN_SCAM_DOMAIN",
+      "severity": "high",
+      "weight": 30,
+      "group": "database_intelligence"
+    },
+    {
+      "code": "REPORTED_SUSPICIOUS_ENTITY",
+      "severity": "medium",
+      "weight": 12,
+      "group": "database_intelligence"
+    }
+  ],
+  "non_scoring_indicators": [
+    {
+      "code": "INSUFFICIENT_CONTEXT",
+      "severity": "medium",
+      "behavior": "confidence_only",
+      "weight": 0
+    },
+    {
+      "code": "LOW_IMAGE_QUALITY",
+      "severity": "medium",
+      "behavior": "confidence_only",
+      "weight": 0
+    },
+    {
+      "code": "LOW_AUDIO_QUALITY",
+      "severity": "medium",
+      "behavior": "confidence_only",
+      "weight": 0
+    },
+    {
+      "code": "CONFLICTING_EVIDENCE",
+      "severity": "medium",
+      "behavior": "confidence_only",
+      "weight": 0
+    },
+    {
+      "code": "UNVERIFIABLE_CLAIM",
+      "severity": "low",
+      "behavior": "confidence_only",
+      "weight": 0
+    },
+    {
+      "code": "POSSIBLE_PROMPT_INJECTION",
+      "severity": "high",
+      "behavior": "security_only",
+      "weight": 0
+    }
+  ],
+  "combination_bonus_cap": 15,
+  "combination_bonuses": [
+    {
+      "id": "bank_impersonation_with_otp",
+      "description": "Bank impersonation combined with a direct OTP request.",
+      "indicators": [
+        "BANK_IMPERSONATION",
+        "OTP_REQUEST"
+      ],
+      "points": 6
+    },
+    {
+      "id": "government_impersonation_with_urgent_payment",
+      "description": "Government impersonation combined with an urgent payment request.",
+      "indicators": [
+        "GOVERNMENT_IMPERSONATION",
+        "URGENT_PAYMENT"
+      ],
+      "points": 6
+    },
+    {
+      "id": "suspicious_link_with_password_request",
+      "description": "A suspicious link combined with a password request.",
+      "indicators": [
+        "SUSPICIOUS_LINK",
+        "PASSWORD_REQUEST"
+      ],
+      "points": 6
+    },
+    {
+      "id": "suspicious_link_with_card_data_request",
+      "description": "A suspicious link combined with a card-data request.",
+      "indicators": [
+        "SUSPICIOUS_LINK",
+        "CARD_DATA_REQUEST"
+      ],
+      "points": 6
+    },
+    {
+      "id": "remote_access_with_screen_share",
+      "description": "Remote device control combined with screen sharing.",
+      "indicators": [
+        "REMOTE_ACCESS_REQUEST",
+        "SCREEN_SHARE_REQUEST"
+      ],
+      "points": 5
+    },
+    {
+      "id": "remote_access_with_disabled_security",
+      "description": "Remote device control combined with disabling security controls.",
+      "indicators": [
+        "REMOTE_ACCESS_REQUEST",
+        "DISABLE_SECURITY_REQUEST"
+      ],
+      "points": 5
+    },
+    {
+      "id": "guaranteed_return_with_payment",
+      "description": "Guaranteed investment return combined with a payment request.",
+      "indicators": [
+        "GUARANTEED_RETURN",
+        "PAYMENT_REQUEST"
+      ],
+      "points": 5
+    },
+    {
+      "id": "unrealistic_return_with_advance_fee",
+      "description": "Unrealistic returns combined with an advance-fee request.",
+      "indicators": [
+        "UNREALISTIC_RETURN",
+        "ADVANCE_FEE_REQUEST"
+      ],
+      "points": 5
+    },
+    {
+      "id": "task_recharge_with_locked_earnings",
+      "description": "Task recharge combined with payment to unlock earnings.",
+      "indicators": [
+        "TASK_RECHARGE_REQUEST",
+        "PAY_TO_UNLOCK_EARNINGS"
+      ],
+      "points": 6
+    },
+    {
+      "id": "unsolicited_prize_with_fee",
+      "description": "An unsolicited prize combined with a fee request.",
+      "indicators": [
+        "UNSOLICITED_PRIZE",
+        "PRIZE_FEE_REQUEST"
+      ],
+      "points": 6
+    }
+  ]
+}

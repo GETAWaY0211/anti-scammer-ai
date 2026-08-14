@@ -17,5 +17,28 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
 
+  postgres:
+    image: postgres:17
+    container_name: anti-scammer-postgres
+    restart: unless-stopped
+
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-anti_scammer}
+      POSTGRES_USER: ${POSTGRES_USER:-anti_scammer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in n8n/.env}
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 volumes:
   n8n_data:
+  postgres_data:

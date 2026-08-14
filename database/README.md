@@ -1,6 +1,6 @@
 # Local PostgreSQL Scam Intelligence
 
-Phase 5A/5B provides a local PostgreSQL 17 database and the isolated **Entity Intelligence Lookup V1** n8n sub-workflow. It is not connected to Text Analysis Main V2 and does not change public API responses or deterministic risk scoring.
+Phase 5A/5B established the local PostgreSQL 17 database and **Entity Intelligence Lookup V1**. Phase 5C connects that read-only sub-workflow to Text Analysis Main V2 and merges backend-derived indicators before deterministic scoring version 1.1.0, without adding public database fields.
 
 ## Start PostgreSQL locally
 
@@ -150,4 +150,4 @@ These manual checks must be performed in the target n8n instance before claiming
 - The component performs read-only lookup. It does not accept reports or write user-submitted data.
 - Full normalized phone and bank-account values exist transiently inside the isolated workflow to perform exact matching. Restrict n8n execution-history access and retention accordingly.
 - The final normalized result omits submitted `context.content` and client metadata. It returns only operational context fields plus redacted entities; database `source` is queried for internal compatibility but is not exposed.
-- This phase does not connect database intelligence to the public workflow, risk indicators, scoring, or human-review policy.
+- Phase 5C connects this read-only lookup to Text Analysis Main V2. Only the normalized match result is merged after strict LLM validation; no request-path database writes were added.

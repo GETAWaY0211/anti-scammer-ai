@@ -29,7 +29,7 @@ VALUES
         'Synthetic development-only bank-account value; it does not identify a real account.'
     ),
     (
-        'domain', 'reported-shop.example', 'reported', 2, 0.5500,
+        'domain', 'review-demo.example', 'reported', 2, 0.5500,
         'development_seed', '2026-04-08T00:00:00Z', '2026-06-21T00:00:00Z', TRUE,
         'Synthetic development-only reported domain using the reserved .example TLD.'
     ),

@@ -2,7 +2,7 @@
 
 | รายการ | ค่า |
 | --- | --- |
-| เวอร์ชัน | `1.0.0` |
+| เวอร์ชัน | `1.1.0` |
 | สถานะ | `draft` |
 | ภาษาของเอกสาร | ไทย |
 | รูปแบบรหัสหมวดหมู่ | lowercase `snake_case` |
@@ -21,9 +21,9 @@
 ## 2. กฎหลัก
 
 - Category ต้องไม่กำหนดหรือเพิ่ม risk score โดยตรง
-- Risk score ต้องคำนวณจาก scam indicators ที่ตรวจสอบแล้วและมีหลักฐานจากอินพุตเท่านั้น
+- Risk score ต้องคำนวณจาก scam indicators ที่ตรวจสอบแล้วและมีหลักฐานจากอินพุต หรือจาก deterministic match กับ trusted intelligence source เท่านั้น
 - Indicator code ที่ซ้ำกันในหนึ่ง analysis ให้นับคะแนนเพียงครั้งเดียว แม้พบหลักฐานหลายตำแหน่ง โดยอาจเก็บหลักฐานหลายชิ้นไว้ประกอบคำอธิบายได้
-- ทุก indicator ที่ตรวจพบต้องอ้างอิงหลักฐานจากอินพุตอย่างเฉพาะเจาะจง
+- ทุก indicator ต้องอ้างอิงหลักฐานอย่างเฉพาะเจาะจงจากอินพุต สำหรับ backend-only intelligence indicator ต้องมีทั้ง entity ที่สกัดจากอินพุตและ active match จาก trusted database
 - การที่บริษัทหรือธนาคารเพียงระบุชื่อตนเอง ไม่เพียงพอสำหรับการตรวจพบ impersonation
 - การมี URL อยู่ในข้อความ ไม่เพียงพอสำหรับ `SUSPICIOUS_LINK`
 - ไวยากรณ์ การสะกดคำ สำเนียง สัญชาติ เพศ และอายุ ต้องไม่ถูกใช้เป็น risk indicator หรือเหตุผลประกอบคะแนน
@@ -138,6 +138,19 @@ URL ต้องมีสัญญาณประกอบก่อนใช้ 
 | `UNSOLICITED_PRIZE` | แจ้งรางวัลที่ไม่ได้เข้าร่วม | Claims the target won a contest, lottery, or prize they did not knowingly enter. | medium | `score` | “คุณถูกรางวัลจากกิจกรรมที่ไม่เคยสมัคร” | แจ้งผลกิจกรรมที่ผู้รับสมัครจริงและตรวจสอบรายชื่อได้ |
 | `FAKE_ESCROW_OR_MIDDLEMAN` | ใช้ตัวกลางหรือ escrow ปลอม | Introduces a fraudulent escrow service, agent, or middleman to make a transaction appear safe. | high | `score` | ผู้ซื้อส่งเว็บ escrow ที่เพิ่งสร้างและให้ผู้ขายจ่ายค่าปลดล็อก | ใช้ escrow ที่ได้รับอนุญาตและตรวจสอบผ่านช่องทางอิสระได้ |
 
+### 4.8 Deterministic database intelligence
+
+Indicators กลุ่มนี้สร้างโดย backend จากการจับคู่ entity กับฐานข้อมูล intelligence ที่เชื่อถือได้เท่านั้น LLM และ client ห้ามสร้าง ยืนยัน ลบ หรือแทนที่ indicator เหล่านี้ หลักฐานต้องเป็นค่าที่ปกปิดแล้วสำหรับ phone และ bank account ส่วนสถานะ `cleared` ไม่สร้าง indicator และต้องไม่ลดหรือยกเลิก indicator จาก LLM
+
+| code | ชื่อแสดงผลภาษาไทย | English description | default severity | scoring behavior | ตัวอย่างที่เข้าเกณฑ์ | ตัวอย่างที่ไม่เข้าเกณฑ์ |
+| --- | --- | --- | --- | --- | --- | --- |
+| `KNOWN_SCAM_PHONE` | หมายเลขโทรศัพท์ที่ยืนยันว่าเกี่ยวข้องกับกลโกง | A redacted phone number matches an active trusted-database entry classified as confirmed scam. | high | `score` | ฐานข้อมูลจับคู่ `081***0000` กับสถานะ `confirmed_scam` | หมายเลขไม่พบในฐานข้อมูล หรือมีสถานะ `cleared` |
+| `KNOWN_SCAM_BANK_ACCOUNT` | บัญชีธนาคารที่ยืนยันว่าเกี่ยวข้องกับกลโกง | A redacted bank account matches an active trusted-database entry classified as confirmed scam. | critical | `score` | ฐานข้อมูลจับคู่ `******9999` กับสถานะ `confirmed_scam` | บัญชีไม่พบในฐานข้อมูล หรือมีสถานะ `cleared` |
+| `KNOWN_SCAM_DOMAIN` | โดเมนที่ยืนยันว่าเกี่ยวข้องกับกลโกง | A domain matches an active trusted-database entry classified as confirmed scam. | high | `score` | ฐานข้อมูลจับคู่ `scam-demo.example` กับสถานะ `confirmed_scam` | URL มีอยู่ในข้อความแต่ไม่พบ active match |
+| `REPORTED_SUSPICIOUS_ENTITY` | ข้อมูลติดต่อหรือปลายทางที่ถูกรายงานว่าน่าสงสัย | An entity matches an active trusted-database entry with reported or suspected status and requires additional verification. | medium | `score` | entity มีสถานะ `reported` หรือ `suspected` | entity มีสถานะ `cleared` หรือไม่พบในฐานข้อมูล |
+
+`REPORTED_SUSPICIOUS_ENTITY` เพิ่มคะแนนตาม scoring configuration แต่ต้องบังคับ human review เสมอ ส่วน indicator จากฐานข้อมูลทั้งหมดต้องใช้เพียงข้อมูล match ที่ backend ตรวจสอบแล้ว ไม่ใช้ client metadata หรือข้อสรุปจากโมเดลเป็นหลักฐาน
+
 ## 5. Quality and uncertainty indicators
 
 Indicators ในส่วนนี้ไม่ใช่ scam indicators และต้องไม่เพิ่ม risk score โดยตรง ค่า severity บอกความสำคัญต่อคุณภาพการวิเคราะห์หรือความปลอดภัยของระบบ ไม่ใช่ความรุนแรงของกลโกง
@@ -197,6 +210,7 @@ Indicators ในส่วนนี้ไม่ใช่ scam indicators แล�
 ## 9. Evidence-grounding rules
 
 1. **อ้างจากอินพุต:** ทุก detected indicator ต้องมี evidence ที่เป็นข้อความสั้น ตำแหน่งหรือคำบรรยายสิ่งที่เห็น/ได้ยินจากอินพุต ห้ามสร้างคำพูดหรือรายละเอียดที่ไม่มีอยู่
+   - ข้อยกเว้นเชิงแหล่งที่มาสำหรับ backend-only intelligence indicator: evidence คือ entity ที่พบจริงในอินพุตในรูปแบบปกปิด และ indicator ต้องได้รับการยืนยันด้วย deterministic active database match หลัง strict LLM validation เท่านั้น
 2. **แยกข้อเท็จจริงจากการอนุมาน:** Evidence บอกสิ่งที่ปรากฏ ส่วน explanation อธิบายว่าทำไมจึงเข้าเกณฑ์ หากเป็น inference ต้องระบุว่าเป็นการอนุมาน
 3. **ใช้หลักฐานขั้นต่ำที่เพียงพอ:** เลือก excerpt สั้นที่สุดที่ยังพิสูจน์ indicator ได้ และหลีกเลี่ยงการทำสำเนาข้อมูลอ่อนไหวเกินจำเป็น
 4. **ปกปิดข้อมูลอ่อนไหว:** Redact password, OTP, API key, token และเลขบัญชีธนาคารเต็มก่อนเก็บหรือแสดง evidence เช่น `XXX-X-X1234-X` ห้ามบันทึกค่าจริงลง log

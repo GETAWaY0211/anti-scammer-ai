@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '..');
-const DEFAULT_CONFIG_PATH = path.join(REPOSITORY_ROOT, 'config', 'scoring-v1.json');
+const DEFAULT_CONFIG_PATH = path.join(REPOSITORY_ROOT, 'config', 'scoring-v1.1.json');
 const DEFAULT_TAXONOMY_PATH = path.join(REPOSITORY_ROOT, 'docs', 'scam-taxonomy.md');
 
 function parseTaxonomy(markdown) {

@@ -2,26 +2,69 @@
 
 This directory contains the text-and-image MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
-## Phase 5A/5B — isolated entity intelligence
+## Phase 5C — deterministic entity intelligence integration
 
-`n8n/workflows/entity-intelligence-lookup-v1.json` is an isolated sub-workflow for deterministic extraction and local PostgreSQL lookup of phone, bank-account, and domain entities. It is deliberately **not connected** to Text Analysis Main V2 in this phase and does not change public responses, risk scoring, indicators, or human-review behavior.
+`n8n/workflows/entity-intelligence-lookup-v1.json` is now called by Text Analysis Main V2 for both text and image-extracted content. It deterministically extracts phone, bank-account, and domain entities and performs a read-only PostgreSQL lookup before Model Router V1. A database failure stops analysis with safe HTTP `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`; Phase 5C does not retry or continue without intelligence.
 
-The local Compose stack in `n8n/docker-compose.yml` now includes PostgreSQL 17. Copy `n8n/.env.example` to `n8n/.env`, set a local password, start the `postgres` service, then apply the migration and development seed in `database/`. Import Entity Intelligence Lookup V1 separately and select a Postgres credential on **PostgreSQL Lookup**. When both services share the Compose network, use host `postgres`; see `database/README.md` for exact commands, networking alternatives, the internal contract, and manual tests.
+The strict LLM validator still runs before database indicators are merged. **Merge Intelligence Indicators** then adds backend-only `KNOWN_SCAM_PHONE`, `KNOWN_SCAM_BANK_ACCOUNT`, `KNOWN_SCAM_DOMAIN`, or `REPORTED_SUSPICIOUS_ENTITY` from validated lookup results. The model cannot create, remove, or override these matches. One indicator per code is retained; selection uses highest database confidence, then report count, then original entity order. A `cleared` match adds nothing and never suppresses model evidence.
 
-## Architecture V2 — Phase 4
+Phase 5C responses use `api_version: v1`, `taxonomy_version: 1.1.0`, and `scoring_version: 1.1.0`. Scoring 1.1.0 adds a capped `database_intelligence` group with weights `35`, `45`, `30`, and `12` respectively. `REPORTED_SUSPICIOUS_ENTITY` always requires human review; a confirmed match does not force review on its own. The public top-level response remains unchanged and exposes neither lookup rows nor diagnostics.
 
-`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Phase 4 accepts either text or one Base64 image. Validated images are converted to extracted text by `n8n/workflows/image-preprocessor-v1.json` before entering the same router, strict validation, scoring, and public-response pipeline as text.
+The provider prompt, LLM output schema, and **Validate LLM Output** keep their existing model-only allowlist and cannot emit or accept the four backend-only codes. Public taxonomy version `1.1.0` is assigned only after **Merge Intelligence Indicators** adds authoritative database results.
+
+The local Compose stack uses PostgreSQL 17. Copy `n8n/.env.example` to `n8n/.env`, set a local password, start `postgres`, then apply the migration and development seed. The lookup path is read-only and never stores submitted text, images, Base64, extracted text, unknown entities, or analysis results. Restrict n8n execution-history access and retention because full inputs and exact normalized lookup keys exist transiently during execution.
+
+Runtime path:
+
+```text
+text context ───────────────────────────────┐
+image -> extraction -> normalized text ────┤
+                                            v
+Entity Intelligence Lookup V1 -> Model Router V1 -> Validate LLM Output
+  -> Merge Intelligence Indicators -> Score Risk 1.1.0
+  -> Build Public Response -> Finalize Response -> Respond
+```
+
+Import and configure in this order:
+
+1. Provider Gemini V1 — select the Gemini credential.
+2. Provider Mock V1.
+3. Image Preprocessor V1 — select the Gemini credential.
+4. Model Router V1 — select both provider workflows.
+5. Entity Intelligence Lookup V1 — select the Postgres credential on **PostgreSQL Lookup**.
+6. Text Analysis Main V2 — select **Entity Intelligence Lookup V1**, **Model Router V1**, and **Image Preprocessor V1** in their Execute Workflow nodes.
+7. Save and activate/publish dependencies before Text Analysis Main V2.
+
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Only one public workflow using `api/v1/analyze` may be active.
+
+Manual Phase 5C checks with the synthetic seed:
+
+- `https://scam-demo.example/login` returns `KNOWN_SCAM_DOMAIN` and scoring version `1.1.0`.
+- `081-000-0000` returns `KNOWN_SCAM_PHONE` with evidence `081***0000`.
+- `review-demo.example` returns `REPORTED_SUSPICIOUS_ENTITY` and `needs_human_review: true`.
+- `unknown-demo.example` adds no database indicator.
+- A screenshot containing `scam-demo.example` follows extraction, lookup, merge, and deterministic scoring without exposing image or database internals.
+- With PostgreSQL stopped, a request containing an entity returns safe `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`.
+
+These are manual runtime checks; do not treat them as complete until run in the imported n8n workflows. See `database/README.md` for database commands and networking details.
+
+## Architecture V2 — Phase 5C
+
+`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Text and validated image-extracted content now pass through deterministic entity intelligence before the unchanged model router and strict model-output validation.
 
 The runtime path is:
 
 ```text
 Webhook -> Validate Request -> Text Input?
-  text  -> Prepare Input ---------------------------------------> Model Router V1
+  text  -> Prepare Input ---------------------------------------┐
   image -> Prepare Image Input -> Image Preprocessor V1
-         -> Normalize Extracted Text ---------------------------> Model Router V1
+         -> Normalize Extracted Text ---------------------------┤
+                                                               v
+Entity Intelligence Lookup V1 ----------------------------> Model Router V1
 
 Model Router V1 -> Validate Provider Adapter Result -> Validate LLM Output
-                -> Score Risk Deterministically -> Build Public Response
+                -> Merge Intelligence Indicators -> Score Risk Deterministically
+                -> Build Public Response
                 -> Finalize Response -> Respond
 
 Model Router V1
@@ -29,7 +72,7 @@ Model Router V1
   -> Provider Mock V1
 ```
 
-The main workflow owns the public API boundary, Base64 and magic-byte validation, input-type branching, extracted-text normalization, provider-result validation, authoritative LLM-output validation, deterministic scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no analysis-provider selection logic.
+The main workflow owns the public API boundary, Base64 and magic-byte validation, input-type branching, extracted-text normalization, intelligence-result validation, provider-result validation, authoritative LLM-output validation, deterministic intelligence merge, scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no analysis-provider selection logic.
 
 **Image Preprocessor V1** owns the dedicated Gemini vision request and performs text extraction only. It treats image pixels and visible instructions as untrusted, preserves visible conversational text and order, and does not classify scams or calculate risk. It returns `422 IMAGE_TEXT_EXTRACTION_FAILED` when no usable text is found and safely normalizes provider failures to `503 IMAGE_PREPROCESSOR_UNAVAILABLE`.
 
@@ -66,7 +109,7 @@ The V2 public HTTP outcomes are:
 - `400` for an invalid request
 - `413` when text or image data exceeds its configured limit
 - `422` when an image has no usable extracted text or parseable model JSON fails strict schema or taxonomy validation
-- `503` for image-preprocessor or analysis-provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
+- `503` for intelligence lookup failure, image-preprocessor failure, or analysis-provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
 - `500` for an unexpected internal workflow error
 
 `gemini-3.6-flash` remains the Gemini adapter default. **Validate LLM Output** in the main workflow remains authoritative for both providers and continues to enforce the complete project schema, taxonomy, uniqueness, evidence grounding, redaction, and length rules before deterministic scoring.
@@ -80,12 +123,14 @@ Import and configure the workflows in this order:
 5. Import `n8n/workflows/image-preprocessor-v1.json` and select the Gemini HTTP Header Auth credential on **Call Gemini Image Extraction**.
 6. In **Execute Provider Gemini V1**, select the imported **Provider Gemini V1** workflow.
 7. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
-8. Import or update `n8n/workflows/text-analysis-main-v2.json`.
-9. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
-10. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
-11. Save and activate or publish every workflow in dependency order.
+8. Import `n8n/workflows/entity-intelligence-lookup-v1.json` and select its Postgres credential.
+9. Import or update `n8n/workflows/text-analysis-main-v2.json`.
+10. In **Execute Entity Intelligence Lookup V1**, select the imported lookup workflow.
+11. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
+12. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
+13. Save and activate or publish every workflow in dependency order.
 
-The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. All four references must be selected after import. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Model Router V1, then Text Analysis Main V2.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Model Router V1, Entity Intelligence Lookup V1, then Text Analysis Main V2.
 
 ### Phase 4 manual tests
 
@@ -97,7 +142,7 @@ Negative image tests must cover `image/gif`, a MIME/signature mismatch, malforme
 
 Do not treat these runtime checks as complete until they have been executed in the target n8n instance.
 
-`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available as the earlier standalone mock baseline. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Multipart uploads, image URLs, multiple images, automatic fallback, retries, external second providers, database lookups, and threat-intelligence lookups remain out of scope for Phase 4.
+`text-analysis-gemini-v1.json` remains available as the V1 behavioral baseline, and `text-analysis-mock-v1.json` remains available as the earlier standalone mock baseline. Each public workflow uses `POST api/v1/analyze`; only one workflow using that path may be active at a time. Multipart uploads, image URLs, multiple images, automatic fallback, retries, external reputation services, and database writes remain out of scope.
 
 ## Workflow file
 
@@ -271,11 +316,11 @@ Error branches use the API contract's safe error envelope:
 
 Error responses do not include stack traces, Code node source, credentials, environment variables, prompts, provider details, raw model output, or internal execution data.
 
-The deterministic human-review confidence threshold is `0.65`. Review is required for invalid confidence, confidence below that threshold, unsupported indicators, malformed supported indicators, taxonomy severity mismatch, `CONFLICTING_EVIDENCE`, `LOW_IMAGE_QUALITY`, or `LOW_AUDIO_QUALITY`. `INSUFFICIENT_CONTEXT` always forces review regardless of score or valid confidence. These quality and uncertainty indicators remain non-scoring, and `POSSIBLE_PROMPT_INJECTION` alone neither adds risk points nor forces review.
+The deterministic human-review confidence threshold is `0.65`. Review is required for invalid confidence, confidence below that threshold, unsupported indicators, malformed supported indicators, taxonomy severity mismatch, `CONFLICTING_EVIDENCE`, `LOW_IMAGE_QUALITY`, or `LOW_AUDIO_QUALITY`. `INSUFFICIENT_CONTEXT` and `REPORTED_SUSPICIOUS_ENTITY` always force review regardless of score or valid confidence. Quality and uncertainty indicators remain non-scoring, and `POSSIBLE_PROMPT_INJECTION` alone neither adds risk points nor forces review.
 
 ## Inspecting internal diagnostics
 
-Open an execution in n8n and inspect the output of **Normalize Extracted Text**, **Score Risk Deterministically**, or **Build Public Response**. Internal execution data includes image-preprocessor diagnostics, scored indicators, group scores and caps, applied bonuses, ignored indicators, validation warnings, and the scoring summary.
+Open an execution in n8n and inspect **Validate Intelligence Lookup Result**, **Merge Intelligence Indicators**, **Score Risk Deterministically**, or **Build Public Response**. Internal execution data includes lookup and image-preprocessor diagnostics, scored indicators, group scores and caps, applied bonuses, ignored indicators, validation warnings, and the scoring summary.
 
 The main workflow's single **Respond** node sends only `public_response`. It does not expose `internal_diagnostics`, image-preprocessor fields, mock-only fields, or n8n execution data. Restrict access to the n8n editor and execution history because internal data may still contain submitted content.
 
@@ -291,7 +336,8 @@ Repository contracts remain the source of truth:
 - `docs/scam-taxonomy.md`
 - `schemas/llm-analysis-output.schema.json`
 - `prompts/text-analysis-system.md`
-- `config/scoring-v1.json`
+- `config/scoring-v1.1.json` (active)
+- `config/scoring-v1.json` (historical 1.0.0)
 - `scripts/risk-engine.js`
 
-The workflow embeds a self-contained copy of scoring version `1.0.0` because imported n8n Code nodes cannot reliably load repository-relative modules. Whenever `scoring_version` or its configuration changes, regenerate and retest the embedded scoring copy before activating the updated workflow.
+The Main V2 workflow embeds a self-contained copy of scoring version `1.1.0` because imported n8n Code nodes cannot reliably load repository-relative modules. Whenever `scoring_version` or its configuration changes, regenerate and retest the embedded scoring copy before activating the updated workflow.

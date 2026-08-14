@@ -11,6 +11,7 @@ const fixtures = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'risk-engine-cases.json'), 'utf8')
 );
 const config = loadScoringConfig();
+const historicalConfigPath = path.join(__dirname, '..', 'config', 'scoring-v1.json');
 
 function fixture(id) {
   const match = fixtures.find((entry) => entry.id === id);
@@ -245,4 +246,52 @@ test('21. INSUFFICIENT_CONTEXT forces human review at confidence 0.90 without ad
   assertScoreRange(result, scenario.expected);
   assert.equal(result.needs_human_review, true);
   assert.deepEqual(result.scored_indicators, []);
+});
+
+test('22. scoring version 1.1.0 is the default while version 1.0.0 remains reproducible', () => {
+  const input = { indicators: [{ code: 'OTP_REQUEST', severity: 'critical', evidence: 'ขอ OTP' }], confidence: 0.9 };
+  const current = scoreAnalysis(input);
+  const historical = scoreAnalysis(input, loadScoringConfig(historicalConfigPath));
+  assert.equal(current.scoring_version, '1.1.0');
+  assert.equal(current.taxonomy_version, '1.1.0');
+  assert.equal(historical.scoring_version, '1.0.0');
+  assert.equal(historical.taxonomy_version, '1.0.0');
+  assert.equal(current.risk_score, historical.risk_score);
+});
+
+test('23. confirmed database indicators use the configured conservative weights', () => {
+  const cases = [
+    ['KNOWN_SCAM_PHONE', 'high', 35],
+    ['KNOWN_SCAM_BANK_ACCOUNT', 'critical', 45],
+    ['KNOWN_SCAM_DOMAIN', 'high', 30]
+  ];
+  for (const [code, severity, expectedScore] of cases) {
+    const result = scoreAnalysis({ indicators: [{ code, severity, evidence: 'redacted evidence' }], confidence: 0.9 });
+    assert.equal(result.risk_score, expectedScore, code);
+    assert.equal(result.needs_human_review, false, code);
+  }
+});
+
+test('24. REPORTED_SUSPICIOUS_ENTITY contributes 12 and always forces review', () => {
+  const result = scoreAnalysis({
+    indicators: [{ code: 'REPORTED_SUSPICIOUS_ENTITY', severity: 'medium', evidence: 'reported-demo.example' }],
+    confidence: 0.9
+  });
+  assert.equal(result.risk_score, 12);
+  assert.equal(result.risk_level, 'low');
+  assert.equal(result.needs_human_review, true);
+});
+
+test('25. database intelligence group cap and final score cap remain deterministic', () => {
+  const indicators = [
+    { code: 'KNOWN_SCAM_PHONE', severity: 'high', evidence: '081***0000' },
+    { code: 'KNOWN_SCAM_BANK_ACCOUNT', severity: 'critical', evidence: '******9999' },
+    { code: 'KNOWN_SCAM_DOMAIN', severity: 'high', evidence: 'scam-demo.example' },
+    { code: 'REPORTED_SUSPICIOUS_ENTITY', severity: 'medium', evidence: 'reported-demo.example' }
+  ];
+  const result = scoreAnalysis({ indicators, confidence: 0.9 });
+  const group = result.group_scores.find((entry) => entry.group === 'database_intelligence');
+  assert.deepEqual(group, { group: 'database_intelligence', raw_score: 122, cap: 80, applied_score: 80 });
+  assert.equal(result.risk_score, 80);
+  assert.equal(result.risk_level, 'critical');
 });

@@ -3,14 +3,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'scoring-v1.json');
+const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'scoring-v1.1.json');
 const REVIEW_CONFIDENCE_THRESHOLD = 0.65;
+const ACTIVE_TAXONOMY_VERSION = '1.1.0';
 
 function loadScoringConfig(configPath = DEFAULT_CONFIG_PATH) {
   return JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
 const DEFAULT_CONFIG = loadScoringConfig();
+if (DEFAULT_CONFIG.taxonomy_version !== ACTIVE_TAXONOMY_VERSION) {
+  throw new Error(`Active scoring configuration must use taxonomy ${ACTIVE_TAXONOMY_VERSION}.`);
+}
 
 function normalizeEvidence(value) {
   return typeof value === 'string'

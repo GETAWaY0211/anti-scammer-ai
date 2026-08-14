@@ -81,7 +81,7 @@ For `input_type: "image"`, `content` must be one object containing exactly:
 | `risk_level` | string | One of `low`, `medium`, `high`, or `critical`. |
 | `summary` | string | Concise, plain-language assessment of the content. |
 | `scam_categories` | array of strings | One or more category codes defined by `taxonomy_version`. Multiple categories are allowed; the first item is the primary category and subsequent items are secondary categories. Categories summarize patterns and do not directly determine `risk_score`. |
-| `indicators` | array | Detected scam or manipulation indicators. May be empty when none are found. |
+| `indicators` | array | Validated model indicators plus authoritative backend-derived intelligence indicators. May be empty when none are found. |
 | `recommended_actions` | array of strings | Safe, practical actions for the user. May be empty for low-risk content. |
 | `confidence` | number | Analysis confidence from `0.0` to `1.0`, inclusive. It is not a guarantee that the assessment is correct. |
 | `needs_human_review` | boolean | Whether deterministic policy requires human review. Review is required for invalid confidence, confidence below `0.65`, unsupported or malformed indicators, taxonomy severity mismatch, conflicting evidence, insufficient context, or low image/audio quality. |
@@ -104,8 +104,8 @@ Every item in `indicators` contains all of the following fields:
 ```json
 {
   "api_version": "v1",
-  "taxonomy_version": "1.0.0",
-  "scoring_version": "1.0.0",
+  "taxonomy_version": "1.1.0",
+  "scoring_version": "1.1.0",
   "analysis_id": "ana_01J4EXAMPLEP9Q2K",
   "timestamp": "2026-08-04T09:30:00Z",
   "risk_score": 96,
@@ -168,7 +168,7 @@ Every item in `indicators` contains all of the following fields:
 - `api_version` must be exactly `"v1"`.
 - `taxonomy_version` and `scoring_version` must be non-empty version strings identifying the exact configurations used for the analysis.
 - `scam_categories` must be a non-empty array, may contain multiple values, and must contain only category codes supported by `taxonomy_version`. Duplicate category codes are not allowed. The first item is the primary category; any remaining items are secondary categories.
-- For taxonomy version `1.0.0`, supported category codes are `bank_impersonation`, `government_impersonation`, `account_takeover`, `investment_scam`, `romance_scam`, `shopping_scam`, `parcel_delivery_scam`, `job_scam`, `loan_scam`, `tech_support_scam`, `prize_lottery_scam`, `extortion_scam`, `unclear`, and `other`.
+- For taxonomy version `1.1.0`, supported category codes are `bank_impersonation`, `government_impersonation`, `account_takeover`, `investment_scam`, `romance_scam`, `shopping_scam`, `parcel_delivery_scam`, `job_scam`, `loan_scam`, `tech_support_scam`, `prize_lottery_scam`, `extortion_scam`, `unclear`, and `other`.
 - Categories must be assigned from validated patterns and indicators, but they must not directly add to, multiply, override, or otherwise determine `risk_score`.
 - `risk_score` must be an integer between `0` and `100`; `confidence` must be a number between `0.0` and `1.0`.
 - `needs_human_review` must be a boolean. The confidence review threshold is `0.65`; invalid confidence or confidence below this threshold requires review.
@@ -178,6 +178,10 @@ Every item in `indicators` contains all of the following fields:
 - `processing_time_ms` must be a non-negative integer measuring server-side workflow processing time from workflow acceptance through response finalization. It must not represent client network latency.
 - Each indicator must contain `code`, `title`, `severity`, `evidence`, and `explanation`.
 - Indicator `code` values must be supported by `taxonomy_version`; duplicate indicator codes count only once for scoring, subject to the taxonomy's specificity and overlap rules.
+- `KNOWN_SCAM_PHONE`, `KNOWN_SCAM_BANK_ACCOUNT`, `KNOWN_SCAM_DOMAIN`, and `REPORTED_SUSPICIOUS_ENTITY` are backend-only indicators. They may be added only after strict model-output validation from an active deterministic intelligence-database match; model output and client input cannot establish, suppress, or override them.
+- Database indicator evidence must be minimized: phone numbers are partially redacted, bank accounts reveal no more than the final four digits, and domains may remain visible. Database row IDs, report sources, database confidence, connection details, and lookup diagnostics are never public fields.
+- An active `confirmed_scam` match may add the appropriate `KNOWN_SCAM_*` indicator. Active `reported` or `suspected` matches add `REPORTED_SUSPICIOUS_ENTITY`; `cleared` matches add nothing and never reduce or suppress model indicators.
+- `REPORTED_SUSPICIOUS_ENTITY` always requires human review. Confirmed intelligence indicators do not force review by themselves, but all other review rules still apply.
 - Quality and uncertainty indicators may affect `confidence` and `needs_human_review`, but must not directly increase `risk_score`. Security-only indicators must not change `risk_score`; `POSSIBLE_PROMPT_INJECTION` remains non-scoring and does not force review by itself.
 - A successful response must expose only concise, evidence-grounded explanations. It must never expose chain-of-thought, hidden reasoning, system prompts, or internal analysis traces.
 
@@ -185,6 +189,8 @@ Every item in `indicators` contains all of the following fields:
 
 - `api_version`, `taxonomy_version`, and `scoring_version` are independent. Clients must use all three when storing, comparing, or replaying analysis results.
 - The `v1` response shape remains stable within this API version. A taxonomy or scoring update may change supported codes, weights, overlap caps, or thresholds without exposing those internal rules in the response.
+- Phase 5C uses taxonomy version `1.1.0` and scoring version `1.1.0`. Taxonomy `1.1.0` adds the backend-only intelligence indicator semantics while preserving the category set and public response shape. Historical scoring configuration `1.0.0` remains separate for reproducibility.
+- The LLM output schema and strict pre-merge validator intentionally retain the model-only indicator allowlist and reject all backend-only intelligence codes. The backend assigns public taxonomy version `1.1.0` only after deterministic intelligence indicators have been merged and scored.
 - Clients must not infer scoring weights from category order, category count, indicator severity, or a small set of example responses. Deterministic scoring is controlled by the identified `scoring_version`.
 - Clients must treat the first `scam_categories` item as primary while preserving all subsequent category codes in order.
 - Provider identity, provider-specific model names, prompts, chain-of-thought, hidden reasoning, and raw provider output are not part of the public contract and must not appear in a successful or error response.
@@ -198,7 +204,7 @@ Every item in `indicators` contains all of the following fields:
 | `413 Payload Too Large` | The request body or submitted media exceeds the configured limit. |
 | `422 Unprocessable Content` | No usable text could be extracted from a validated image, or a parseable analysis result fails strict schema or taxonomy validation. |
 | `500 Internal Server Error` | An unexpected internal error occurred. No implementation details are returned. |
-| `503 Service Unavailable` | Image preprocessing, the workflow, or a downstream AI provider is temporarily unavailable. Architecture V2 normalizes provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures to this status. |
+| `503 Service Unavailable` | Image preprocessing, deterministic intelligence lookup, the workflow, or a downstream AI provider is temporarily unavailable. Intelligence lookup failure uses `INTELLIGENCE_LOOKUP_UNAVAILABLE`; analysis does not continue without the required lookup. Provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures are also normalized safely to this status. |
 
 Authentication, authorization, and API-boundary rate limiting may be enforced by a reverse proxy or API gateway before the workflow runs. Those infrastructure responses are outside this workflow response contract.
 
