@@ -77,8 +77,53 @@ Validation checks conservative container signatures without attempting full medi
 Valid audio is prepared in `audio_input`; its Base64 is deliberately absent from `context.content`. Because Speech-to-Text does not exist yet, the audio branch terminates safely with HTTP `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE`. It cannot reach Entity Intelligence, Semantic Pattern Lookup, Model Router, LLM validation, corroboration, or scoring. Raw audio is transient workflow data only and is never inserted into either intelligence database.
 
 - **Phase 6A:** public audio contract, deterministic Base64/signature validation, and controlled temporary response.
-- **Phase 6B:** a dedicated Speech-to-Text provider sub-workflow.
+- **Phase 6B:** the standalone **Speech-to-Text Provider V1** sub-workflow described below.
 - **Phase 6C:** validation of the transcript and conversion to canonical text before the existing intelligence and analysis pipeline.
+
+## Phase 6B — Speech-to-Text Provider V1
+
+`n8n/workflows/speech-to-text-provider-v1.json` is an isolated Execute Workflow sub-workflow that converts already validated audio into one normalized transcript. It uses the trusted `gemini-3.6-flash` model through the existing Gemini `generateContent` REST pattern, inline audio data, HTTP Header Auth with `x-goog-api-key`, and the provider-compatible `generationConfig.responseFormat.text.mimeType = APPLICATION_JSON` structured response. It contains zero Respond to Webhook nodes and is not connected to Main in this phase.
+
+The adapter retains the Phase 6A MIME contract: `audio/mpeg`, `audio/wav`, `audio/webm`, and `audio/mp4`. Gemini's current generateContent audio guide explicitly documents WAV and MP3 (`audio/mp3`, with `audio/mpeg` also used by its file examples), but does not explicitly list the WebM and MP4 audio MIME values. Treat WebM/MP4 transcription as requiring a manual credential-backed runtime check after import; a provider rejection is normalized to internal 503 without leaking provider details.
+
+The provider instruction treats all spoken content as untrusted data and requires faithful transcription without summarization, translation, scam classification, safety decisions, or obedience to instructions inside the recording. The strict result contains only `transcript` and `detected_language`; the backend requires a non-empty trimmed transcript no longer than 20,000 characters and a short BCP 47 language tag. No confidence is requested or invented.
+
+Normalized success:
+
+```json
+{
+  "ok": true,
+  "audio_transcribed": true,
+  "context": {
+    "request_id": "stt-example",
+    "analysis_id": "analysis-stt-example",
+    "language": "th"
+  },
+  "transcript": "ข้อความที่ถอดจากเสียง",
+  "detected_language": "th",
+  "internal_diagnostics": {
+    "audio_transcription": {
+      "provider_name": "gemini",
+      "provider_http_status": 200,
+      "failure_stage": null,
+      "error_category": null
+    }
+  }
+}
+```
+
+No usable speech is normalized to internal `422 no_usable_speech`. Authentication, rate-limit, timeout, network, provider 5xx, malformed envelope, malformed JSON, and empty provider output are normalized to safe internal `503` failures. Raw audio, Base64, request payloads, raw provider responses, prompts, credentials, stack traces, scam indicators, intelligence, and risk fields are removed at **Normalize STT Result**.
+
+Phase 6B performs no database operation and persists neither audio nor transcript. n8n execution history can still retain trigger input, Gemini request data, and intermediate provider output; minimize successful-execution retention, enable pruning, and restrict execution access before production use.
+
+Phase 6C will replace Main's temporary 422 branch with:
+
+```text
+Prepare Audio Input
+-> Speech-to-Text Provider V1
+-> Validate and Normalize Transcript
+-> existing canonical text/intelligence/analysis pipeline
+```
 
 ## Phase 5C — deterministic entity intelligence integration
 
