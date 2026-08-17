@@ -121,7 +121,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2140,
+        2580,
         -300
       ]
     },
@@ -155,7 +155,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2360,
+        2800,
         -300
       ]
     },
@@ -168,7 +168,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2580,
+        3460,
         -400
       ]
     },
@@ -202,7 +202,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2800,
+        3680,
         -400
       ]
     },
@@ -215,7 +215,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3020,
+        3900,
         -480
       ]
     },
@@ -249,7 +249,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3240,
+        4120,
         -480
       ]
     },
@@ -262,7 +262,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3460,
+        4340,
         -260
       ],
       "notesInFlow": true,
@@ -281,7 +281,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        3680,
+        4560,
         -260
       ],
       "notesInFlow": true,
@@ -313,7 +313,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1480,
+        1920,
         -220
       ],
       "onError": "continueRegularOutput",
@@ -329,7 +329,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1700,
+        2140,
         -220
       ]
     },
@@ -363,7 +363,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1920,
+        2360,
         -220
       ]
     },
@@ -645,8 +645,100 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2580,
+        3020,
         -300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nconst data = $input.first().json;\nconst context = isRecord(data) && isRecord(data.context) ? data.context : {};\nreturn [{ json: {\n  context: {\n    request_id: typeof context.request_id === 'string' ? context.request_id : null,\n    analysis_id: typeof context.analysis_id === 'string' ? context.analysis_id : null,\n    content: typeof context.content === 'string' ? context.content : '',\n    language: typeof context.language === 'string' && context.language.trim() ? context.language.trim() : 'und'\n  }\n} }];"
+      },
+      "id": "5d000000-0000-4000-8000-000000000201",
+      "name": "Build Semantic Lookup Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        -40
+      ],
+      "notesInFlow": true,
+      "notes": "Builds a fresh allowlisted semantic lookup envelope. Image Base64 and unrelated internal data are never included."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Semantic Pattern Lookup V1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "5d000000-0000-4000-8000-000000000202",
+      "name": "Execute Semantic Pattern Lookup V1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1480,
+        -40
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "After import, select Semantic Pattern Lookup V1. Semantic failure is normalized as unavailable and does not fail public analysis."
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_ACCEPTED_PATTERNS = 5;\nconst EXPECTED_PATTERNS = new Map([\n  ['BANK_OTP_IMPERSONATION', 'bank_impersonation'],\n  ['PRIZE_FEE', 'prize_lottery_scam'],\n  ['FAKE_JOB_RECHARGE', 'job_scam'],\n  ['INVESTMENT_GUARANTEED_RETURN', 'investment_scam'],\n  ['PARCEL_FEE', 'parcel_delivery_scam'],\n  ['REMOTE_SUPPORT', 'tech_support_scam'],\n  ['GOVERNMENT_THREAT', 'government_impersonation'],\n  ['ROMANCE_EMERGENCY', 'romance_scam']\n]);\nfunction isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction hasOnlyKeys(value, allowed) {\n  return isRecord(value) && Object.keys(value).every((key) => allowed.has(key));\n}\nfunction hasForbiddenKey(value) {\n  const forbidden = /^(embedding|embeddings|vector|raw_embedding|provider|provider_response|database_id|row_id|example_id|model|endpoint)$/i;\n  if (Array.isArray(value)) return value.some(hasForbiddenKey);\n  if (!isRecord(value)) return false;\n  return Object.entries(value).some(([key, nested]) => forbidden.test(key) || hasForbiddenKey(nested));\n}\nfunction comparePatterns(left, right) {\n  return right.best_similarity - left.best_similarity ||\n    right.average_similarity - left.average_similarity ||\n    right.matched_example_count - left.matched_example_count ||\n    left.pattern_code.localeCompare(right.pattern_code, 'en');\n}\nfunction unavailable(base, category) {\n  return {\n    ok: true,\n    context: base.context,\n    intelligence: base.intelligence,\n    semantic_pattern_intelligence: { available: false, patterns: [] },\n    internal_diagnostics: {\n      ...(isRecord(base.internal_diagnostics) ? base.internal_diagnostics : {}),\n      semantic_lookup: { available: false, failure_stage: 'semantic_lookup', error_category: category }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const base = JSON.parse(JSON.stringify($('Validate Intelligence Lookup Result').first().json));\n  if (base.ok !== true || !isRecord(base.context) || !isRecord(base.intelligence)) {\n    return [{ json: unavailable(base, 'missing_authoritative_context') }];\n  }\n  if (raw.ok !== true) return [{ json: unavailable(base, 'lookup_unavailable') }];\n  if (hasForbiddenKey(raw)) return [{ json: unavailable(base, 'forbidden_semantic_field') }];\n  if (!hasOnlyKeys(raw, new Set(['ok', 'context', 'semantic_intelligence', 'internal_diagnostics']))) {\n    return [{ json: unavailable(base, 'unexpected_result_field') }];\n  }\n  if (!hasOnlyKeys(raw.context, new Set(['request_id', 'analysis_id', 'language'])) ||\n      raw.context.request_id !== base.context.request_id || raw.context.analysis_id !== base.context.analysis_id) {\n    return [{ json: unavailable(base, 'context_correlation_failure') }];\n  }\n  if (!hasOnlyKeys(raw.semantic_intelligence, new Set(['top_k', 'patterns'])) ||\n      raw.semantic_intelligence.top_k !== 5 || !Array.isArray(raw.semantic_intelligence.patterns) ||\n      raw.semantic_intelligence.patterns.length > MAX_ACCEPTED_PATTERNS) {\n    return [{ json: unavailable(base, 'invalid_semantic_envelope') }];\n  }\n  const seen = new Set();\n  const patterns = [];\n  for (const pattern of raw.semantic_intelligence.patterns) {\n    if (!hasOnlyKeys(pattern, new Set(['pattern_code', 'category', 'best_similarity', 'average_similarity', 'matched_example_count', 'matched_examples']))) {\n      return [{ json: unavailable(base, 'unexpected_pattern_field') }];\n    }\n    if (typeof pattern.pattern_code !== 'string' || !/^[A-Z][A-Z0-9_]{1,63}$/.test(pattern.pattern_code) || seen.has(pattern.pattern_code)) {\n      return [{ json: unavailable(base, 'invalid_pattern_code') }];\n    }\n    if (typeof pattern.category !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(pattern.category) || EXPECTED_PATTERNS.get(pattern.pattern_code) !== pattern.category) {\n      return [{ json: unavailable(base, 'invalid_pattern_category') }];\n    }\n    if (!Number.isFinite(pattern.best_similarity) || pattern.best_similarity < 0 || pattern.best_similarity > 1 ||\n        !Number.isFinite(pattern.average_similarity) || pattern.average_similarity < 0 || pattern.average_similarity > 1 ||\n        !Number.isInteger(pattern.matched_example_count) || pattern.matched_example_count < 0 || pattern.matched_example_count > 5) {\n      return [{ json: unavailable(base, 'invalid_pattern_metrics') }];\n    }\n    if (Object.prototype.hasOwnProperty.call(pattern, 'matched_examples')) {\n      if (!Array.isArray(pattern.matched_examples) || pattern.matched_examples.length !== pattern.matched_example_count) {\n        return [{ json: unavailable(base, 'invalid_matched_examples') }];\n      }\n      for (const example of pattern.matched_examples) {\n        if (!hasOnlyKeys(example, new Set(['similarity', 'example_rank'])) ||\n            !Number.isFinite(example.similarity) || example.similarity < 0 || example.similarity > 1 ||\n            !Number.isInteger(example.example_rank) || example.example_rank < 1 || example.example_rank > 5) {\n          return [{ json: unavailable(base, 'invalid_matched_example') }];\n        }\n      }\n    }\n    seen.add(pattern.pattern_code);\n    patterns.push({\n      pattern_code: pattern.pattern_code,\n      category: pattern.category,\n      best_similarity: pattern.best_similarity,\n      average_similarity: pattern.average_similarity,\n      matched_example_count: pattern.matched_example_count\n    });\n  }\n  for (let index = 1; index < patterns.length; index += 1) {\n    if (comparePatterns(patterns[index - 1], patterns[index]) > 0) {\n      return [{ json: unavailable(base, 'non_deterministic_pattern_order') }];\n    }\n  }\n  return [{ json: {\n    ok: true,\n    context: base.context,\n    intelligence: base.intelligence,\n    semantic_pattern_intelligence: { available: true, patterns },\n    internal_diagnostics: {\n      ...(isRecord(base.internal_diagnostics) ? base.internal_diagnostics : {}),\n      semantic_lookup: { available: true, accepted_pattern_count: patterns.length }\n    }\n  } }];\n} catch {\n  const base = $('Validate Intelligence Lookup Result').first().json;\n  return [{ json: unavailable(base, 'semantic_result_validation_failure') }];\n}"
+      },
+      "id": "5d000000-0000-4000-8000-000000000203",
+      "name": "Validate Semantic Pattern Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\ntry {\n  const data = JSON.parse(JSON.stringify($input.first().json));\n  const semantic = JSON.parse(JSON.stringify($('Validate Semantic Pattern Result').first().json));\n  if (data.ok !== true || !isRecord(data.context) || !isRecord(data.analysis_output)) throw new Error('Merged analysis is unavailable.');\n  const normalized = isRecord(semantic.semantic_pattern_intelligence)\n    ? semantic.semantic_pattern_intelligence\n    : { available: false, patterns: [] };\n  return [{ json: {\n    ...data,\n    semantic_pattern_intelligence: {\n      available: normalized.available === true,\n      patterns: Array.isArray(normalized.patterns) ? normalized.patterns : []\n    },\n    internal_diagnostics: {\n      ...(isRecord(data.internal_diagnostics) ? data.internal_diagnostics : {}),\n      semantic_lookup: isRecord(semantic.internal_diagnostics) && isRecord(semantic.internal_diagnostics.semantic_lookup)\n        ? semantic.internal_diagnostics.semantic_lookup\n        : { available: false, error_category: 'semantic_diagnostics_unavailable' }\n    }\n  } }];\n} catch {\n  const data = $input.first().json;\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.context && typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
+      },
+      "id": "5d000000-0000-4000-8000-000000000204",
+      "name": "Attach Semantic Pattern Intelligence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        -300
+      ],
+      "notesInFlow": true,
+      "notes": "Attaches validated similarity intelligence for internal corroboration only. It does not create indicators or change scoring."
+    },
+    {
+      "parameters": {
+        "content": "## Architecture V2 Phase 5D-E\nSemantic Pattern Intelligence is optional supporting evidence only. Entity Intelligence remains authoritative, validated LLM indicators remain evidence-grounded, and deterministic scoring remains the sole risk-score authority. Semantic similarity is not scam probability.",
+        "height": 220,
+        "width": 520,
+        "color": 5
+      },
+      "id": "5d000000-0000-4000-8000-000000000205",
+      "name": "Phase 5D-E Semantic Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        180
       ]
     }
   ],
@@ -983,7 +1075,7 @@
       "main": [
         [
           {
-            "node": "Execute Model Router V1",
+            "node": "Build Semantic Lookup Input",
             "type": "main",
             "index": 0
           }
@@ -998,6 +1090,50 @@
       ]
     },
     "Merge Intelligence Indicators": {
+      "main": [
+        [
+          {
+            "node": "Attach Semantic Pattern Intelligence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Semantic Lookup Input": {
+      "main": [
+        [
+          {
+            "node": "Execute Semantic Pattern Lookup V1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Semantic Pattern Lookup V1": {
+      "main": [
+        [
+          {
+            "node": "Validate Semantic Pattern Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Semantic Pattern Result": {
+      "main": [
+        [
+          {
+            "node": "Execute Model Router V1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Semantic Pattern Intelligence": {
       "main": [
         [
           {

@@ -26,6 +26,8 @@ Document and query inputs use the provider's asymmetric retrieval convention con
 
 `Semantic Pattern Lookup V1` is an isolated sub-workflow. Runtime content and its vector exist transiently in workflow memory only. Its parameterized PostgreSQL query reads the five nearest verified active examples using cosine distance (`<=>`), then groups them by `pattern_code` and reports best similarity, average similarity, matched-example count, and safe example ranks. Patterns are sorted by best similarity, average similarity, count, then code. No similarity threshold or scam conclusion is applied in this phase, and the result has no scoring or public API effect.
 
+Phase 5D-E calls that existing sub-workflow from Main V2 as optional supporting intelligence. Main validates and reduces its output to safe pattern-level metrics; semantic failure does not stop analysis, while authoritative Entity Intelligence failure still does. Similarity never creates indicators or changes the deterministic score, is never exposed publicly, and must not be interpreted as scam probability. Runtime text and query embeddings remain transient and are never inserted into PostgreSQL.
+
 ## Start PostgreSQL locally
 
 From the repository root:

@@ -27,6 +27,21 @@ Export the final normalized output to `tests/results/semantic-calibration-raw.js
 
 This phase remains retrieval evaluation only. Main V2, taxonomy, scoring, and the public API are unchanged. Candidate similarity bands are explicitly provisional; no production-safe threshold can be inferred from this small synthetic dataset alone.
 
+## Phase 5D-E — supporting semantic intelligence in Main V2
+
+Text Analysis Main V2 now calls the existing **Semantic Pattern Lookup V1** after the authoritative Entity Intelligence lookup and before Model Router V1. **Build Semantic Lookup Input** creates a fresh allowlisted object containing only `request_id`, `analysis_id`, canonical text `content`, and `language`. For image requests this content is extracted text; Base64, image bytes, entity results, provider settings, client vectors, and client thresholds are never passed to semantic lookup.
+
+**Validate Semantic Pattern Result** treats the sub-workflow as untrusted. It accepts at most five uniquely coded, deterministically ordered patterns; validates the category, finite `0..1` similarity metrics, and non-negative match count; rejects raw embeddings, database identifiers, provider metadata, and unexpected envelopes; and strips per-example details from the normalized result. A valid result is retained internally as `semantic_pattern_intelligence`. A failed or invalid semantic lookup becomes `{ available: false, patterns: [] }` and analysis continues. This optional failure policy intentionally differs from Entity Intelligence: an authoritative entity lookup failure still stops analysis with `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`.
+
+The trust hierarchy is:
+
+1. **Entity Intelligence** — exact, authoritative known-entity intelligence.
+2. **Validated LLM Indicators** — behavioral and contextual evidence grounded in submitted content.
+3. **Semantic Pattern Intelligence** — similarity-based supporting evidence only.
+4. **Deterministic Risk Engine** — the only final risk-score and risk-level authority.
+
+Semantic similarity is not scam probability. A high similarity alone does not confirm a scam, create an indicator, add risk points, force a category, or change the public response. The API, taxonomy, and scoring versions remain `v1`, `1.1.0`, and `1.1.0`.
+
 ## Phase 5C — deterministic entity intelligence integration
 
 `n8n/workflows/entity-intelligence-lookup-v1.json` is now called by Text Analysis Main V2 for both text and image-extracted content. It deterministically extracts phone, bank-account, and domain entities and performs a read-only PostgreSQL lookup before Model Router V1. A database failure stops analysis with safe HTTP `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`; Phase 5C does not retry or continue without intelligence.
@@ -45,7 +60,7 @@ Runtime path:
 text context ───────────────────────────────┐
 image -> extraction -> normalized text ────┤
                                             v
-Entity Intelligence Lookup V1 -> Model Router V1 -> Validate LLM Output
+Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1 -> Validate LLM Output
   -> Merge Intelligence Indicators -> Score Risk 1.1.0
   -> Build Public Response -> Finalize Response -> Respond
 ```
@@ -57,8 +72,9 @@ Import and configure in this order:
 3. Image Preprocessor V1 — select the Gemini credential.
 4. Model Router V1 — select both provider workflows.
 5. Entity Intelligence Lookup V1 — select the Postgres credential on **PostgreSQL Lookup**.
-6. Text Analysis Main V2 — select **Entity Intelligence Lookup V1**, **Model Router V1**, and **Image Preprocessor V1** in their Execute Workflow nodes.
-7. Save and activate/publish dependencies before Text Analysis Main V2.
+6. Semantic Pattern Lookup V1 — select its Gemini HTTP Header Auth and Postgres credentials.
+7. Text Analysis Main V2 — select **Entity Intelligence Lookup V1**, **Semantic Pattern Lookup V1**, **Model Router V1**, and **Image Preprocessor V1** in their Execute Workflow nodes.
+8. Save and activate/publish dependencies before Text Analysis Main V2.
 
 The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Only one public workflow using `api/v1/analyze` may be active.
 
@@ -85,7 +101,7 @@ Webhook -> Validate Request -> Text Input?
   image -> Prepare Image Input -> Image Preprocessor V1
          -> Normalize Extracted Text ---------------------------┤
                                                                v
-Entity Intelligence Lookup V1 ----------------------------> Model Router V1
+Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1
 
 Model Router V1 -> Validate Provider Adapter Result -> Validate LLM Output
                 -> Merge Intelligence Indicators -> Score Risk Deterministically
@@ -134,7 +150,7 @@ The V2 public HTTP outcomes are:
 - `400` for an invalid request
 - `413` when text or image data exceeds its configured limit
 - `422` when an image has no usable extracted text or parseable model JSON fails strict schema or taxonomy validation
-- `503` for intelligence lookup failure, image-preprocessor failure, or analysis-provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures
+- `503` for authoritative Entity Intelligence lookup failure, image-preprocessor failure, or analysis-provider authentication, rate-limit, network, timeout, availability, malformed-envelope, empty-output, or unusable-output failures. Optional Semantic Pattern lookup failure does not produce a public error by itself.
 - `500` for an unexpected internal workflow error
 
 `gemini-3.6-flash` remains the Gemini adapter default. **Validate LLM Output** in the main workflow remains authoritative for both providers and continues to enforce the complete project schema, taxonomy, uniqueness, evidence grounding, redaction, and length rules before deterministic scoring.
@@ -149,13 +165,15 @@ Import and configure the workflows in this order:
 6. In **Execute Provider Gemini V1**, select the imported **Provider Gemini V1** workflow.
 7. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
 8. Import `n8n/workflows/entity-intelligence-lookup-v1.json` and select its Postgres credential.
-9. Import or update `n8n/workflows/text-analysis-main-v2.json`.
-10. In **Execute Entity Intelligence Lookup V1**, select the imported lookup workflow.
-11. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
-12. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
-13. Save and activate or publish every workflow in dependency order.
+9. Import `n8n/workflows/semantic-pattern-lookup-v1.json`; select its Gemini HTTP Header Auth credential and Postgres credential.
+10. Import or update `n8n/workflows/text-analysis-main-v2.json`.
+11. In **Execute Entity Intelligence Lookup V1**, select the imported entity lookup workflow.
+12. In **Execute Semantic Pattern Lookup V1**, select the imported semantic lookup workflow.
+13. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
+14. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
+15. Save and activate or publish every workflow in dependency order.
 
-The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Model Router V1, Entity Intelligence Lookup V1, then Text Analysis Main V2.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Model Router V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, then Text Analysis Main V2.
 
 ### Phase 4 manual tests
 

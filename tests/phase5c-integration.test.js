@@ -238,11 +238,13 @@ test('workflow structure preserves single response, isolated lookup, image bound
   assert.equal(lookup.nodes.some((entry) => entry.credentials), false);
 });
 
-test('both text and image paths reach lookup, router, finalizer, and the single response node', () => {
+test('both text and image paths reach authoritative lookup, optional semantic lookup, router, finalizer, and the single response node', () => {
   const edges = (name) => (main.connections[name]?.main || []).flat().filter(Boolean).map((edge) => edge.node);
   assert.ok(edges('Preparation Successful?').includes('Build Intelligence Lookup Input'));
   assert.ok(edges('Image Text Ready?').includes('Build Intelligence Lookup Input'));
-  assert.ok(edges('Intelligence Lookup Succeeded?').includes('Execute Model Router V1'));
+  assert.ok(edges('Intelligence Lookup Succeeded?').includes('Build Semantic Lookup Input'));
   assert.ok(edges('Intelligence Lookup Succeeded?').includes('Finalize Response'));
+  assert.deepEqual(edges('Build Semantic Lookup Input'), ['Execute Semantic Pattern Lookup V1']);
+  assert.deepEqual(edges('Validate Semantic Pattern Result'), ['Execute Model Router V1']);
   assert.deepEqual(edges('Finalize Response'), ['Respond']);
 });

@@ -4,7 +4,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const {
   buildCalibrationResult,
   buildMarkdownSummary,
@@ -204,9 +203,9 @@ test('no scam threshold, scoring, taxonomy, or Main integration is introduced', 
   assert.doesNotMatch(read('tests', 'results', 'semantic-calibration.json'), /"similarity_threshold"/);
 });
 
-test('Main Workflow remains byte-for-byte unchanged by the calibration fix', () => {
+test('calibration-only metadata and nodes do not leak into Main Workflow', () => {
   const main = read('n8n', 'workflows', 'text-analysis-main-v2.json');
-  const digest = crypto.createHash('sha256').update(main).digest('hex');
-  assert.equal(digest, '6f88c3568cf8c5686ec48454cd827ed290bc0759571ebd68af8f791a76d10130');
-  assert.doesNotMatch(main, /Semantic Pattern Calibration|Build Semantic Lookup Input/);
+  const parsed = JSON.parse(main);
+  assert.equal(parsed.nodes.some((node) => /calibration/i.test(node.name)), false);
+  assert.doesNotMatch(main, /case_id|case_type|calibration_analysis_id/);
 });
