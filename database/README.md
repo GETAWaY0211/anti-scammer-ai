@@ -28,6 +28,8 @@ Document and query inputs use the provider's asymmetric retrieval convention con
 
 Phase 5D-E calls that existing sub-workflow from Main V2 as optional supporting intelligence. Main validates and reduces its output to safe pattern-level metrics; semantic failure does not stop analysis, while authoritative Entity Intelligence failure still does. Similarity never creates indicators or changes the deterministic score, is never exposed publicly, and must not be interpreted as scam probability. Runtime text and query embeddings remain transient and are never inserted into PostgreSQL.
 
+Phase 5D-F adds a deterministic in-memory corroboration check in Main. It compares each retrieved pattern with indicators already accepted by the strict LLM validator; PostgreSQL similarity and example counts cannot corroborate a pattern alone. This layer performs no database write, adds no scoring weight, and stores no runtime input or result.
+
 ## Start PostgreSQL locally
 
 From the repository root:

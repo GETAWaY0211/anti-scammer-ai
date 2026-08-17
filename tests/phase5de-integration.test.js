@@ -179,7 +179,8 @@ test('workflow structure preserves authoritative entity failure and optional sem
   assert.deepEqual(edges('Execute Semantic Pattern Lookup V1'), ['Validate Semantic Pattern Result']);
   assert.deepEqual(edges('Validate Semantic Pattern Result'), ['Execute Model Router V1']);
   assert.deepEqual(edges('Merge Intelligence Indicators'), ['Attach Semantic Pattern Intelligence']);
-  assert.deepEqual(edges('Attach Semantic Pattern Intelligence'), ['Score Risk Deterministically']);
+  assert.deepEqual(edges('Attach Semantic Pattern Intelligence'), ['Evaluate Semantic Corroboration']);
+  assert.deepEqual(edges('Evaluate Semantic Corroboration'), ['Score Risk Deterministically']);
   assert.equal(main.nodes.filter((entry) => entry.type === 'n8n-nodes-base.respondToWebhook').length, 1);
   assert.equal(semanticLookup.nodes.filter((entry) => entry.type === 'n8n-nodes-base.respondToWebhook').length, 0);
 });

@@ -38,9 +38,35 @@ The trust hierarchy is:
 1. **Entity Intelligence** — exact, authoritative known-entity intelligence.
 2. **Validated LLM Indicators** — behavioral and contextual evidence grounded in submitted content.
 3. **Semantic Pattern Intelligence** — similarity-based supporting evidence only.
-4. **Deterministic Risk Engine** — the only final risk-score and risk-level authority.
+4. **Semantic Corroboration** — deterministic agreement check between a retrieved pattern and existing validated indicators.
+5. **Deterministic Risk Engine** — the only final risk-score and risk-level authority.
 
 Semantic similarity is not scam probability. A high similarity alone does not confirm a scam, create an indicator, add risk points, force a category, or change the public response. The API, taxonomy, and scoring versions remain `v1`, `1.1.0`, and `1.1.0`.
+
+## Phase 5D-F — deterministic semantic corroboration
+
+**Evaluate Semantic Corroboration** runs after validated LLM and authoritative entity indicators have been merged and semantic intelligence has been attached, but before deterministic scoring. It makes no model or network call. For each of the eight allowlisted semantic patterns, a server-side policy defines `required_any` behavioral indicators and optional supporting indicators. A pattern is corroborated only when at least one required indicator is already present; supporting indicators, similarity, matched-example count, and category agreement can never corroborate a pattern by themselves.
+
+The responsibilities remain deliberately separate:
+
+- Semantic retrieval asks: **“What verified scam pattern is this message semantically similar to?”**
+- Corroboration asks: **“Does grounded behavioral evidence support that retrieved pattern?”**
+- Risk scoring asks: **“How much deterministic risk do the validated indicators represent?”**
+
+The current policy is:
+
+| Pattern | `required_any` | Supporting |
+|---|---|---|
+| `BANK_OTP_IMPERSONATION` | `OTP_REQUEST`, `VERIFICATION_CODE_FORWARDING` | `BANK_IMPERSONATION`, `COMPANY_IMPERSONATION`, `URGENCY_PRESSURE` |
+| `PRIZE_FEE` | `PRIZE_FEE_REQUEST`, `ADVANCE_FEE_REQUEST` | `UNSOLICITED_PRIZE`, `URGENCY_PRESSURE` |
+| `FAKE_JOB_RECHARGE` | `TASK_RECHARGE_REQUEST`, `PAY_TO_UNLOCK_EARNINGS`, `FAKE_JOB_FEE` | `PAYMENT_REQUEST`, `URGENCY_PRESSURE` |
+| `INVESTMENT_GUARANTEED_RETURN` | `GUARANTEED_RETURN`, `UNREALISTIC_RETURN` | `PAYMENT_REQUEST`, `URGENCY_PRESSURE` |
+| `PARCEL_FEE` | `FAKE_DELIVERY_FEE`, `ADVANCE_FEE_REQUEST` | `PAYMENT_REQUEST`, `URGENCY_PRESSURE` |
+| `REMOTE_SUPPORT` | `REMOTE_ACCESS_REQUEST`, `SCREEN_SHARE_REQUEST`, `DISABLE_SECURITY_REQUEST` | `COMPANY_IMPERSONATION`, `URGENCY_PRESSURE` |
+| `GOVERNMENT_THREAT` | `GOVERNMENT_IMPERSONATION`, `FAKE_AUTHORITY_CLAIM` | `THREAT_OR_INTIMIDATION`, `URGENT_PAYMENT` |
+| `ROMANCE_EMERGENCY` | `EMOTIONAL_MANIPULATION` | `PAYMENT_REQUEST`, `URGENCY_PRESSURE`, `ISOLATION_FROM_TRUSTED_CONTACTS` |
+
+Corroboration never synthesizes indicators, changes categories, adds score bonuses, or forces human review. Its normalized output is internal execution data only. Public fields and API/taxonomy/scoring versions remain unchanged. Legitimate statements such as “ธนาคารไม่มีนโยบายขอ OTP” or “การลงทุนมีความเสี่ยงและไม่รับประกันผลตอบแทน” remain uncorroborated unless the strict LLM validator has accepted a required behavioral indicator.
 
 ## Phase 5C — deterministic entity intelligence integration
 
@@ -61,7 +87,8 @@ text context ──────────────────────�
 image -> extraction -> normalized text ────┤
                                             v
 Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1 -> Validate LLM Output
-  -> Merge Intelligence Indicators -> Score Risk 1.1.0
+  -> Merge Intelligence Indicators -> Attach Semantic Pattern Intelligence
+  -> Evaluate Semantic Corroboration -> Score Risk 1.1.0
   -> Build Public Response -> Finalize Response -> Respond
 ```
 
@@ -104,7 +131,8 @@ Webhook -> Validate Request -> Text Input?
 Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1
 
 Model Router V1 -> Validate Provider Adapter Result -> Validate LLM Output
-                -> Merge Intelligence Indicators -> Score Risk Deterministically
+                -> Merge Intelligence Indicators -> Attach Semantic Pattern Intelligence
+                -> Evaluate Semantic Corroboration -> Score Risk Deterministically
                 -> Build Public Response
                 -> Finalize Response -> Respond
 

@@ -168,7 +168,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3460,
+        3680,
         -400
       ]
     },
@@ -202,7 +202,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3680,
+        3900,
         -400
       ]
     },
@@ -215,7 +215,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3900,
+        4120,
         -480
       ]
     },
@@ -249,7 +249,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        4120,
+        4340,
         -480
       ]
     },
@@ -262,7 +262,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4340,
+        4560,
         -260
       ],
       "notesInFlow": true,
@@ -281,7 +281,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        4560,
+        4780,
         -260
       ],
       "notesInFlow": true,
@@ -740,6 +740,21 @@
         1220,
         180
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nconst PATTERN_POLICY = new Map([\n  ['BANK_OTP_IMPERSONATION', {\n    required_any: ['OTP_REQUEST', 'VERIFICATION_CODE_FORWARDING'],\n    supporting: ['BANK_IMPERSONATION', 'COMPANY_IMPERSONATION', 'URGENCY_PRESSURE']\n  }],\n  ['PRIZE_FEE', {\n    required_any: ['PRIZE_FEE_REQUEST', 'ADVANCE_FEE_REQUEST'],\n    supporting: ['UNSOLICITED_PRIZE', 'URGENCY_PRESSURE']\n  }],\n  ['FAKE_JOB_RECHARGE', {\n    required_any: ['TASK_RECHARGE_REQUEST', 'PAY_TO_UNLOCK_EARNINGS', 'FAKE_JOB_FEE'],\n    supporting: ['PAYMENT_REQUEST', 'URGENCY_PRESSURE']\n  }],\n  ['INVESTMENT_GUARANTEED_RETURN', {\n    required_any: ['GUARANTEED_RETURN', 'UNREALISTIC_RETURN'],\n    supporting: ['PAYMENT_REQUEST', 'URGENCY_PRESSURE']\n  }],\n  ['PARCEL_FEE', {\n    required_any: ['FAKE_DELIVERY_FEE', 'ADVANCE_FEE_REQUEST'],\n    supporting: ['PAYMENT_REQUEST', 'URGENCY_PRESSURE']\n  }],\n  ['REMOTE_SUPPORT', {\n    required_any: ['REMOTE_ACCESS_REQUEST', 'SCREEN_SHARE_REQUEST', 'DISABLE_SECURITY_REQUEST'],\n    supporting: ['COMPANY_IMPERSONATION', 'URGENCY_PRESSURE']\n  }],\n  ['GOVERNMENT_THREAT', {\n    required_any: ['GOVERNMENT_IMPERSONATION', 'FAKE_AUTHORITY_CLAIM'],\n    supporting: ['THREAT_OR_INTIMIDATION', 'URGENT_PAYMENT']\n  }],\n  ['ROMANCE_EMERGENCY', {\n    required_any: ['EMOTIONAL_MANIPULATION'],\n    supporting: ['PAYMENT_REQUEST', 'URGENCY_PRESSURE', 'ISOLATION_FROM_TRUSTED_CONTACTS']\n  }]\n]);\ntry {\n  const data = JSON.parse(JSON.stringify($input.first().json));\n  if (data.ok !== true || !isRecord(data.context) || !isRecord(data.analysis_output) || !Array.isArray(data.analysis_output.indicators)) {\n    throw new Error('Validated analysis is unavailable.');\n  }\n  const semantic = isRecord(data.semantic_pattern_intelligence)\n    ? data.semantic_pattern_intelligence\n    : { available: false, patterns: [] };\n  if (semantic.available !== true || !Array.isArray(semantic.patterns)) {\n    return [{ json: {\n      ...data,\n      semantic_corroboration: { evaluated: false, matches: [] },\n      internal_diagnostics: {\n        ...(isRecord(data.internal_diagnostics) ? data.internal_diagnostics : {}),\n        semantic_corroboration: { evaluated: false, evaluated_pattern_count: 0, corroborated_pattern_count: 0, ignored_unknown_pattern_count: 0 }\n      }\n    } }];\n  }\n  const activeIndicators = new Set(\n    data.analysis_output.indicators\n      .filter((indicator) => isRecord(indicator) && typeof indicator.code === 'string')\n      .map((indicator) => indicator.code)\n  );\n  const matches = [];\n  let ignoredUnknownPatternCount = 0;\n  for (const pattern of semantic.patterns) {\n    if (!isRecord(pattern) || typeof pattern.pattern_code !== 'string') {\n      ignoredUnknownPatternCount += 1;\n      continue;\n    }\n    const policy = PATTERN_POLICY.get(pattern.pattern_code);\n    if (!policy) {\n      ignoredUnknownPatternCount += 1;\n      continue;\n    }\n    const matchedRequired = policy.required_any.filter((code) => activeIndicators.has(code));\n    const matchedSupporting = policy.supporting.filter((code) => activeIndicators.has(code));\n    const requiredIndicatorMatch = matchedRequired.length > 0;\n    matches.push({\n      pattern_code: pattern.pattern_code,\n      corroborated: requiredIndicatorMatch,\n      required_indicator_match: requiredIndicatorMatch,\n      matched_required_indicators: matchedRequired,\n      matched_supporting_indicators: matchedSupporting\n    });\n  }\n  const corroboratedPatternCount = matches.filter((match) => match.corroborated).length;\n  return [{ json: {\n    ...data,\n    semantic_corroboration: { evaluated: true, matches },\n    internal_diagnostics: {\n      ...(isRecord(data.internal_diagnostics) ? data.internal_diagnostics : {}),\n      semantic_corroboration: {\n        evaluated: true,\n        evaluated_pattern_count: matches.length,\n        corroborated_pattern_count: corroboratedPatternCount,\n        ignored_unknown_pattern_count: ignoredUnknownPatternCount\n      }\n    }\n  } }];\n} catch {\n  const data = $input.first().json;\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.context && typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
+      },
+      "id": "5f000000-0000-4000-8000-000000000301",
+      "name": "Evaluate Semantic Corroboration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3240,
+        -300
+      ],
+      "notesInFlow": true,
+      "notes": "Deterministically checks whether already validated indicators support each retrieved semantic pattern. It never creates indicators, changes scoring, or treats similarity as scam probability."
     }
   ],
   "pinData": {},
@@ -1134,6 +1149,17 @@
       ]
     },
     "Attach Semantic Pattern Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Semantic Corroboration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Semantic Corroboration": {
       "main": [
         [
           {
