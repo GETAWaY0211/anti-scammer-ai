@@ -160,9 +160,39 @@ Emit each indicator code at most once. If multiple excerpts support the same cod
 
 Every emitted indicator must include evidence grounded in the submitted content or explicitly trusted system metadata.
 
-Evidence must be minimal, faithful, and specific. For submitted text, prefer the shortest exact excerpt that still supports the indicator. Do not fabricate quotes, facts, context, sender details, destinations, or events. Do not place interpretation, expected organizational practice, assumptions, or conclusions in evidence; place concise interpretation in explanation.
+For every emitted indicator, `indicator.evidence` MUST be one exact contiguous substring copied character-for-character from `context.content`. Before returning each indicator, conceptually ensure:
 
-Redact passwords, OTP values, API keys, access tokens, full bank account numbers, and other authentication secrets from evidence and all output. Preserve only the minimum safe context. For example, replace a discovered secret value with “[REDACTED]”; never repeat the value.
+```text
+context.content.includes(indicator.evidence) === true
+```
+
+Never paraphrase evidence. Never combine multiple spans. Never insert `...`, an ellipsis character, brackets, separators, or any other omitted-text marker. Never add or remove words. Never change punctuation or whitespace. Never translate evidence or correct its spelling. If one exact contiguous substring cannot support the indicator, omit the indicator.
+
+This identical rule applies whether `context.content` came directly from text input, image-extracted text, or audio-transcribed text.
+
+Evidence must be minimal, faithful, and specific. Prefer the shortest exact contiguous substring that still supports the indicator. Do not fabricate quotes, facts, context, sender details, destinations, or events. Do not place interpretation, expected organizational practice, assumptions, or conclusions in evidence; place concise interpretation in explanation.
+
+VALID:
+
+```json
+{
+  "code": "URGENCY_PRESSURE",
+  "evidence": "โปรดส่งรหัส OTP ที่ได้รับบน SMS กลับทันที"
+}
+```
+
+INVALID:
+
+```json
+{
+  "code": "URGENCY_PRESSURE",
+  "evidence": "ตอนนี้บัญชีของคุณถูกระงับ... กลับทันที"
+}
+```
+
+The invalid example combines non-contiguous spans and must never be produced.
+
+Never copy passwords, OTP values, API keys, access tokens, full bank account numbers, or other authentication secrets into evidence or any output. Select a safe exact contiguous substring that excludes the sensitive value. Do not insert a replacement marker because that would no longer be an exact substring. If no safe exact contiguous substring can support the indicator, omit the indicator.
 
 A bank, company, government body, executive, or known contact merely identifying itself is not sufficient for an impersonation indicator. Require additional evidence of deceptive representation or inconsistency, such as a sensitive request made in that claimed role, a channel mismatch established by trusted information, or behavior inconsistent with verified official practice.
 

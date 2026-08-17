@@ -41,7 +41,7 @@ function audioRequest(mimeType, bytes, extraContent = {}) {
   };
 }
 
-test('valid WAV is accepted, prepared outside context.content, then returns controlled 422', () => {
+test('valid WAV is accepted and prepared outside context.content for the STT boundary', () => {
   const validated = runCode('Validate Request', audioRequest('audio/wav', wavBytes()));
   assert.equal(validated.ok, true);
   assert.equal(validated.request.input_type, 'audio');
@@ -54,19 +54,17 @@ test('valid WAV is accepted, prepared outside context.content, then returns cont
   assert.equal(prepared.audio_input.mime_type, 'audio/wav');
   assert.equal(prepared.audio_input.base64_data, validated.request.content.data);
 
-  const response = runCode('Build Audio Transcription Not Available', prepared);
-  assert.equal(response.status_code, 422);
-  assert.equal(response.public_response.error.code, 'AUDIO_TRANSCRIPTION_NOT_AVAILABLE');
-  assert.equal(response.public_response.error.message, 'Audio transcription is not available in this build.');
-  assert.doesNotMatch(JSON.stringify(response.public_response), /base64|audio_input|provider|model/i);
+  const sttInput = runCode('Build Speech-to-Text Input', prepared);
+  assert.deepEqual(Object.keys(sttInput).sort(), ['audio_input', 'context']);
+  assert.deepEqual(Object.keys(sttInput.context).sort(), ['analysis_id', 'language', 'request_id']);
+  assert.equal(sttInput.audio_input.base64_data, prepared.audio_input.base64_data);
 });
 
-test('valid MP3 ID3 signature follows the same controlled unavailable path', () => {
+test('valid MP3 ID3 signature follows the same strict STT input path', () => {
   const validated = runCode('Validate Request', audioRequest('audio/mpeg', mp3Bytes()));
   assert.equal(validated.ok, true);
-  const response = runCode('Build Audio Transcription Not Available', runCode('Prepare Audio Input', validated));
-  assert.equal(response.status_code, 422);
-  assert.equal(response.public_response.error.code, 'AUDIO_TRANSCRIPTION_NOT_AVAILABLE');
+  const sttInput = runCode('Build Speech-to-Text Input', runCode('Prepare Audio Input', validated));
+  assert.equal(sttInput.audio_input.mime_type, 'audio/mpeg');
 });
 
 test('all four allowlisted audio containers have conservative signature checks', () => {
@@ -122,7 +120,7 @@ test('unknown audio fields including transcript, provider, model, and duration a
   }
 });
 
-test('audio branch cannot reach intelligence, semantic lookup, model routing, or scoring', () => {
+test('validated audio reaches the existing canonical intelligence and scoring pipeline only after transcript normalization', () => {
   const adjacency = new Map(Object.entries(main.connections).map(([name, value]) => [
     name,
     (value.main || []).flat().filter(Boolean).map((edge) => edge.node)
@@ -135,11 +133,13 @@ test('audio branch cannot reach intelligence, semantic lookup, model routing, or
     reachable.add(current);
     pending.push(...(adjacency.get(current) || []));
   }
-  for (const forbidden of [
+  for (const expected of [
     'Build Intelligence Lookup Input', 'Execute Entity Intelligence Lookup V1',
     'Build Semantic Lookup Input', 'Execute Semantic Pattern Lookup V1',
     'Execute Model Router V1', 'Score Risk Deterministically'
-  ]) assert.equal(reachable.has(forbidden), false, forbidden);
+  ]) assert.equal(reachable.has(expected), true, expected);
+  assert.equal(reachable.has('Execute Speech-to-Text Provider V1'), true);
+  assert.equal(reachable.has('Normalize Audio Transcript'), true);
   assert.equal(reachable.has('Finalize Response'), true);
   assert.equal(reachable.has('Respond'), true);
 });
@@ -150,9 +150,10 @@ test('routing explicitly separates text, image, and audio while retaining one Re
   assert.deepEqual(edges('Text Input?', 1), ['Image Input?']);
   assert.deepEqual(edges('Image Input?', 0), ['Prepare Image Input']);
   assert.deepEqual(edges('Image Input?', 1), ['Prepare Audio Input']);
-  assert.deepEqual(edges('Audio Input Prepared?', 0), ['Build Audio Transcription Not Available']);
+  assert.deepEqual(edges('Audio Input Prepared?', 0), ['Build Speech-to-Text Input']);
   assert.deepEqual(edges('Audio Input Prepared?', 1), ['Finalize Response']);
-  assert.deepEqual(edges('Build Audio Transcription Not Available'), ['Finalize Response']);
+  assert.deepEqual(edges('Build Speech-to-Text Input'), ['Execute Speech-to-Text Provider V1']);
+  assert.deepEqual(edges('Normalize Audio Transcript'), ['Build Intelligence Lookup Input']);
   assert.equal(main.nodes.filter((entry) => entry.type === 'n8n-nodes-base.respondToWebhook').length, 1);
 });
 
@@ -180,9 +181,8 @@ test('existing text and image request validation and preparation remain compatib
   assert.equal(preparedImage.image_input.base64_data, png.toString('base64'));
 });
 
-test('audio validation adds no database write, scoring, provider, or transcription implementation', () => {
+test('audio validation remains deterministic and separate from transcription implementation', () => {
   const prepareSource = node('Prepare Audio Input').parameters.jsCode;
-  const unavailableSource = node('Build Audio Transcription Not Available').parameters.jsCode;
-  assert.doesNotMatch(`${prepareSource}\n${unavailableSource}`, /\b(?:INSERT|UPDATE|DELETE|UPSERT|MERGE)\b|risk_score|risk_level|httpRequest|speech[-_ ]?to[-_ ]?text/i);
+  assert.doesNotMatch(prepareSource, /\b(?:INSERT|UPDATE|DELETE|UPSERT|MERGE)\b|risk_score|risk_level|httpRequest/i);
   assert.match(node('Validate Request').parameters.jsCode, /const MAX_AUDIO_BYTES = 5 \* 1024 \* 1024;/);
 });

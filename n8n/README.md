@@ -1,6 +1,6 @@
 # Anti-Scammer AI n8n workflows
 
-This directory contains the text, image, and Phase 6A audio-contract MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
+This directory contains the text, image, and audio-analysis MVP workflows, including public API orchestration, media-to-text preprocessing, deterministic model routing, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
 ## Phase 5D-A — pgvector and semantic-pattern foundation
 
@@ -74,15 +74,15 @@ Main V2 now accepts `input_type: audio` with exactly `mime_type` and canonical B
 
 Validation checks conservative container signatures without attempting full media parsing: WAV uses `RIFF....WAVE`; MP3 uses `ID3` or a structurally valid MPEG frame header; WebM uses EBML `1A 45 DF A3`; MP4/M4A uses a bounded ISO BMFF `ftyp` box. The client MIME type is never trusted alone.
 
-Valid audio is prepared in `audio_input`; its Base64 is deliberately absent from `context.content`. Because Speech-to-Text does not exist yet, the audio branch terminates safely with HTTP `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE`. It cannot reach Entity Intelligence, Semantic Pattern Lookup, Model Router, LLM validation, corroboration, or scoring. Raw audio is transient workflow data only and is never inserted into either intelligence database.
+Valid audio is prepared in `audio_input` and sent only to **Speech-to-Text Provider V1**. Main strictly validates the normalized adapter result and request/analysis correlation, then places only the trimmed transcript in canonical `context.content`. The transcript follows the same Entity Intelligence, Semantic Pattern Intelligence, Model Router, LLM validation, corroboration, and deterministic scoring path as text and image-extracted content.
 
-- **Phase 6A:** public audio contract, deterministic Base64/signature validation, and controlled temporary response.
+- **Phase 6A:** public audio contract plus deterministic Base64 and signature validation.
 - **Phase 6B:** the standalone **Speech-to-Text Provider V1** sub-workflow described below.
-- **Phase 6C:** validation of the transcript and conversion to canonical text before the existing intelligence and analysis pipeline.
+- **Phase 6C:** Main integration, strict transcript/correlation validation, privacy normalization, and reuse of the existing canonical intelligence and analysis pipeline.
 
 ## Phase 6B — Speech-to-Text Provider V1
 
-`n8n/workflows/speech-to-text-provider-v1.json` is an isolated Execute Workflow sub-workflow that converts already validated audio into one normalized transcript. It uses the trusted `gemini-3.6-flash` model through the existing Gemini `generateContent` REST pattern, inline audio data, HTTP Header Auth with `x-goog-api-key`, and the provider-compatible `generationConfig.responseFormat.text.mimeType = APPLICATION_JSON` structured response. It contains zero Respond to Webhook nodes and is not connected to Main in this phase.
+`n8n/workflows/speech-to-text-provider-v1.json` is an isolated Execute Workflow sub-workflow that converts already validated audio into one normalized transcript. It uses the trusted `gemini-3.6-flash` model through the existing Gemini `generateContent` REST pattern, inline audio data, HTTP Header Auth with `x-goog-api-key`, and the provider-compatible `generationConfig.responseFormat.text.mimeType = APPLICATION_JSON` structured response. It contains zero Respond to Webhook nodes; Phase 6C connects it to Main through **Execute Speech-to-Text Provider V1**.
 
 The adapter retains the Phase 6A MIME contract: `audio/mpeg`, `audio/wav`, `audio/webm`, and `audio/mp4`. Gemini's current generateContent audio guide explicitly documents WAV and MP3 (`audio/mp3`, with `audio/mpeg` also used by its file examples), but does not explicitly list the WebM and MP4 audio MIME values. Treat WebM/MP4 transcription as requiring a manual credential-backed runtime check after import; a provider rejection is normalized to internal 503 without leaking provider details.
 
@@ -116,7 +116,7 @@ No usable speech is normalized to internal `422 no_usable_speech`. Authenticatio
 
 Phase 6B performs no database operation and persists neither audio nor transcript. n8n execution history can still retain trigger input, Gemini request data, and intermediate provider output; minimize successful-execution retention, enable pruning, and restrict execution access before production use.
 
-Phase 6C will replace Main's temporary 422 branch with:
+Phase 6C uses this path:
 
 ```text
 Prepare Audio Input
@@ -124,6 +124,12 @@ Prepare Audio Input
 -> Validate and Normalize Transcript
 -> existing canonical text/intelligence/analysis pipeline
 ```
+
+Main accepts a successful adapter result only when `ok` and `audio_transcribed` are true, the transcript is non-empty and at most 20,000 characters, the detected language is a valid short BCP 47-like tag, and both `request_id` and `analysis_id` match the prepared audio context. A correlation or adapter-contract mismatch fails closed with safe HTTP 500.
+
+No usable speech maps to `422 AUDIO_TEXT_EXTRACTION_FAILED`; STT provider or service unavailability maps to `503 AUDIO_TRANSCRIPTION_UNAVAILABLE`. If the client supplied `language`, canonical analysis preserves it and records the detected language only in internal `source_context`. If client language is null, detected language becomes canonical `context.language`; `requested_output_language` is not changed.
+
+After **Normalize Audio Transcript**, `audio_input`, Base64, raw audio, STT request/response data, and provider diagnostics are absent. Only canonical transcript text continues, and neither raw audio nor transcript is inserted into intelligence databases.
 
 ## Phase 5C — deterministic entity intelligence integration
 
@@ -157,8 +163,9 @@ Import and configure in this order:
 4. Model Router V1 — select both provider workflows.
 5. Entity Intelligence Lookup V1 — select the Postgres credential on **PostgreSQL Lookup**.
 6. Semantic Pattern Lookup V1 — select its Gemini HTTP Header Auth and Postgres credentials.
-7. Text Analysis Main V2 — select **Entity Intelligence Lookup V1**, **Semantic Pattern Lookup V1**, **Model Router V1**, and **Image Preprocessor V1** in their Execute Workflow nodes.
-8. Save and activate/publish dependencies before Text Analysis Main V2.
+7. Speech-to-Text Provider V1 — select the Gemini HTTP Header Auth credential.
+8. Text Analysis Main V2 — select **Entity Intelligence Lookup V1**, **Semantic Pattern Lookup V1**, **Model Router V1**, **Image Preprocessor V1**, and **Speech-to-Text Provider V1** in their Execute Workflow nodes.
+9. Save and activate/publish dependencies before Text Analysis Main V2.
 
 The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Only one public workflow using `api/v1/analyze` may be active.
 
@@ -173,9 +180,9 @@ Manual Phase 5C checks with the synthetic seed:
 
 These are manual runtime checks; do not treat them as complete until run in the imported n8n workflows. See `database/README.md` for database commands and networking details.
 
-## Architecture V2 — Phase 6A
+## Architecture V2 — Phase 6C
 
-`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Text and validated image-extracted content pass through deterministic intelligence and analysis. Validated audio stops at the temporary controlled Phase 6A response.
+`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Text, validated image-extracted content, and strictly validated audio transcripts all join one canonical deterministic intelligence and analysis path.
 
 The runtime path is:
 
@@ -185,7 +192,8 @@ Webhook -> Validate Request -> Text Input?
   non-text -> Image Input?
   image -> Prepare Image Input -> Image Preprocessor V1
          -> Normalize Extracted Text ---------------------------┤
-  audio -> Prepare Audio Input -> 422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE
+  audio -> Prepare Audio Input -> Speech-to-Text Provider V1
+        -> Validate STT Result -> Normalize Audio Transcript ---┤
                                                                v
 Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1
 
@@ -253,14 +261,16 @@ Import and configure the workflows in this order:
 7. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
 8. Import `n8n/workflows/entity-intelligence-lookup-v1.json` and select its Postgres credential.
 9. Import `n8n/workflows/semantic-pattern-lookup-v1.json`; select its Gemini HTTP Header Auth credential and Postgres credential.
-10. Import or update `n8n/workflows/text-analysis-main-v2.json`.
-11. In **Execute Entity Intelligence Lookup V1**, select the imported entity lookup workflow.
-12. In **Execute Semantic Pattern Lookup V1**, select the imported semantic lookup workflow.
-13. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
-14. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
-15. Save and activate or publish every workflow in dependency order.
+10. Import `n8n/workflows/speech-to-text-provider-v1.json` and select its Gemini HTTP Header Auth credential on **Call Gemini Speech-to-Text**.
+11. Import or update `n8n/workflows/text-analysis-main-v2.json`.
+12. In **Execute Entity Intelligence Lookup V1**, select the imported entity lookup workflow.
+13. In **Execute Semantic Pattern Lookup V1**, select the imported semantic lookup workflow.
+14. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
+15. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
+16. In **Execute Speech-to-Text Provider V1**, select the imported **Speech-to-Text Provider V1** workflow.
+17. Save and activate or publish every workflow in dependency order.
 
-The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Model Router V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, then Text Analysis Main V2.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Speech-to-Text Provider V1, Model Router V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, then Text Analysis Main V2.
 
 ### Phase 4 manual tests
 
@@ -440,8 +450,8 @@ Error branches use the API contract's safe error envelope:
 
 - `400` for request-validation failures, unsupported input or media MIME, malformed Base64, data URI input, or MIME/signature mismatch
 - `413` for text, image, or audio content exceeding its configured limit
-- `422` when no usable image text is extracted, valid Phase 6A audio cannot yet be transcribed, or generated analysis output fails the strict schema/taxonomy validator
-- `503` when image preprocessing or analysis-provider service is unavailable
+- `422` when no usable image text or audio speech is extracted, or generated analysis output fails the strict schema/taxonomy validator
+- `503` when image preprocessing, audio transcription, or analysis-provider service is unavailable
 - `500` when an internal preparation, validation, routing, scoring, or response-construction stage fails unexpectedly
 
 Error responses do not include stack traces, Code node source, credentials, environment variables, prompts, provider details, raw model output, or internal execution data.

@@ -171,7 +171,7 @@ test('normalized boundary removes Base64, raw provider data, and every analysis 
   assert.equal(result.internal_diagnostics.audio_transcription.provider_name, 'gemini');
 });
 
-test('workflow is an isolated zero-response, zero-database, transcription-only adapter', () => {
+test('workflow remains an isolated zero-response, zero-database, transcription-only adapter after Main integration', () => {
   assert.equal(workflow.name, 'Speech-to-Text Provider V1');
   assert.equal(workflow.nodes.filter((entry) => entry.type === 'n8n-nodes-base.respondToWebhook').length, 0);
   assert.equal(workflow.nodes.filter((entry) => entry.type === 'n8n-nodes-base.httpRequest').length, 1);
@@ -180,8 +180,8 @@ test('workflow is an isolated zero-response, zero-database, transcription-only a
   const serialized = JSON.stringify(workflow);
   assert.doesNotMatch(serialized, /\b(?:INSERT|UPDATE|DELETE|UPSERT|MERGE|TRUNCATE)\b/i);
   assert.doesNotMatch(serialized, /risk_score|risk_level|scam_categories|KNOWN_SCAM|Semantic Pattern Lookup|Entity Intelligence Lookup/);
-  assert.equal(main.nodes.some((entry) => /Speech-to-Text Provider V1/.test(entry.name)), false);
-  assert.ok(main.nodes.some((entry) => entry.name === 'Build Audio Transcription Not Available'));
+  assert.ok(main.nodes.some((entry) => entry.name === 'Execute Speech-to-Text Provider V1'));
+  assert.equal(main.nodes.some((entry) => entry.name === 'Build Audio Transcription Not Available'), false);
 });
 
 test('all subworkflow branches terminate at Normalize STT Result exactly once', () => {

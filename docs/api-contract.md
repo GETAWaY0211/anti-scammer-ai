@@ -66,7 +66,7 @@ For `input_type: "image"`, `content` must be one object containing exactly:
 }
 ```
 
-### Audio Request — Phase 6A
+### Audio Request — Phase 6C
 
 For `input_type: "audio"`, `content` must be one object containing exactly:
 
@@ -88,7 +88,7 @@ For `input_type: "audio"`, `content` must be one object containing exactly:
 }
 ```
 
-Phase 6A validates and prepares audio only. Until Speech-to-Text is implemented, valid audio returns `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE` and never enters intelligence lookup, model routing, or deterministic scoring.
+Validated audio is sent only to the internal Speech-to-Text provider. A successful transcript is strictly validated, converted to canonical `context.content`, and analyzed through the same Entity Intelligence, Semantic Pattern Intelligence, model validation, and deterministic scoring pipeline used by text and image-extracted content. Raw audio and the transcript are not inserted into intelligence databases.
 
 ## Response
 
@@ -192,7 +192,7 @@ Every item in `indicators` contains all of the following fields:
 - Audio MIME type must be exactly `audio/mpeg`, `audio/wav`, `audio/webm`, or `audio/mp4`; arbitrary `audio/*` types are rejected.
 - Audio `data` must be non-empty canonical Base64 without whitespace or a `data:` URI prefix. The encoded limit is 6,990,508 characters and the decoded limit is 5,242,880 bytes (5 MiB).
 - Audio signatures are checked conservatively: WAV requires `RIFF` and `WAVE`; MP3 requires `ID3` or a structurally valid MPEG frame header; WebM requires the EBML signature `1A 45 DF A3`; MP4/M4A requires a bounded ISO BMFF `ftyp` box.
-- In Phase 6A, validated audio is placed in internal `audio_input`, never in `context.content`, and returns controlled `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE`. It must not reach Entity Intelligence, Semantic Pattern Lookup, Model Router, or scoring.
+- Validated audio is placed in internal `audio_input` only until Speech-to-Text completes. After strict transcript and correlation validation, only the transcript becomes canonical `context.content`; Base64, raw audio, adapter diagnostics, and provider data must not reach Entity Intelligence, Semantic Pattern Lookup, Model Router, or scoring.
 - A successful response must include every required response field, even when `indicators` or `recommended_actions` is empty.
 - `api_version` must be exactly `"v1"`.
 - `taxonomy_version` and `scoring_version` must be non-empty version strings identifying the exact configurations used for the analysis.
@@ -231,9 +231,9 @@ Every item in `indicators` contains all of the following fields:
 | `200 OK` | Analysis completed successfully. |
 | `400 Bad Request` | Invalid JSON, missing fields, unsupported values, malformed media, or another validation failure. |
 | `413 Payload Too Large` | The request body or submitted media exceeds the configured limit. |
-| `422 Unprocessable Content` | No usable text could be extracted from a validated image, valid Phase 6A audio cannot yet be transcribed, or a parseable analysis result fails strict schema or taxonomy validation. |
+| `422 Unprocessable Content` | No usable text could be extracted from a validated image, no usable speech could be transcribed from validated audio, or a parseable analysis result fails strict schema or taxonomy validation. |
 | `500 Internal Server Error` | An unexpected internal error occurred. No implementation details are returned. |
-| `503 Service Unavailable` | Image preprocessing, deterministic intelligence lookup, the workflow, or a downstream AI provider is temporarily unavailable. Intelligence lookup failure uses `INTELLIGENCE_LOOKUP_UNAVAILABLE`; analysis does not continue without the required lookup. Provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures are also normalized safely to this status. |
+| `503 Service Unavailable` | Image preprocessing, audio transcription, deterministic intelligence lookup, the workflow, or a downstream AI provider is temporarily unavailable. Intelligence lookup failure uses `INTELLIGENCE_LOOKUP_UNAVAILABLE`; analysis does not continue without the required lookup. Provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures are also normalized safely to this status. |
 
 Authentication, authorization, and API-boundary rate limiting may be enforced by a reverse proxy or API gateway before the workflow runs. Those infrastructure responses are outside this workflow response contract.
 
@@ -281,7 +281,8 @@ Audio-specific stable error codes include:
 
 - `VALIDATION_ERROR` for malformed Base64, unsupported audio MIME type, unknown audio fields, or a MIME/signature mismatch.
 - `CONTENT_TOO_LARGE` when encoded or decoded audio exceeds the 5 MiB decoded limit.
-- `AUDIO_TRANSCRIPTION_NOT_AVAILABLE` for valid audio during Phase 6A, before Speech-to-Text exists.
+- `AUDIO_TEXT_EXTRACTION_FAILED` when validated audio contains no usable transcribed speech.
+- `AUDIO_TRANSCRIPTION_UNAVAILABLE` when the Speech-to-Text provider or service cannot complete transcription.
 
 ## Security Considerations
 
@@ -297,7 +298,7 @@ Audio-specific stable error codes include:
 - Store secrets only in an approved secrets manager or n8n credential store, and grant the workflow the minimum permissions required.
 - Apply authentication, authorization, rate limiting, and request-size limits at the API boundary.
 - Never include Base64 image data, raw image bytes, image-provider requests, image-provider responses, extraction confidence, or image-provider diagnostics in public responses.
-- Never include Base64 audio, raw audio bytes, future transcripts, audio-provider requests, or audio-provider diagnostics in public responses. Phase 6A performs no audio provider call.
+- Never include Base64 audio, raw audio bytes, transcripts, audio-provider requests, or audio-provider diagnostics in public responses. Successful audio analysis returns only the existing public analysis fields.
 - n8n execution history may retain inputs and intermediate node data, including Base64 images, Base64 audio, and extracted text. Production deployments should minimize or disable successful-execution retention where operationally possible, restrict editor and execution access, and configure aggressive pruning consistent with the privacy policy.
 - Limit data retention and access to analysis records. Avoid storing raw image content unless required and explicitly covered by the deployment's privacy policy.
 - Do not use submitted content for model training unless the user has explicitly consented and the deployment policy permits it.

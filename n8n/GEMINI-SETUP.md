@@ -237,7 +237,7 @@ Phase 5D-F adds no credential or workflow reference. After re-importing Main, in
 
 ## 13. Phase 6A audio validation
 
-Phase 6A adds no Gemini audio node and requires no new credential. Re-import Main V2 to obtain the explicit text/image/audio routing nodes. Valid `audio/mpeg`, `audio/wav`, `audio/webm`, or `audio/mp4` input up to 5 MiB decoded must finish at **Build Audio Transcription Not Available** with safe HTTP `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE`. Inspect **Prepare Audio Input** only in restricted execution data: Base64 is held in `audio_input`, never `context.content`, and must not appear in Entity Intelligence, Semantic Pattern Lookup, Model Router, or any public response. Speech-to-Text credential and provider setup are deferred to Phase 6B.
+Phase 6A introduced the explicit text/image/audio routing and deterministic media validation. Phase 6C now replaces its former temporary terminal branch: valid `audio/mpeg`, `audio/wav`, `audio/webm`, or `audio/mp4` input up to 5 MiB decoded is sent only to Speech-to-Text Provider V1, and only a validated transcript may enter the canonical intelligence and analysis pipeline.
 
 ## 14. Phase 6B Speech-to-Text Provider V1
 
@@ -245,7 +245,7 @@ Phase 6A adds no Gemini audio node and requires no new credential. Re-import Mai
 2. Open **Call Gemini Speech-to-Text**.
 3. Select the existing HTTP Header Auth credential whose header name is `x-goog-api-key`.
 4. Confirm the node timeout is 120 seconds, then save the workflow. No API key belongs in exported JSON.
-5. Do not select this workflow in Main yet. Main must continue returning `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE` until Phase 6C.
+5. For standalone Phase 6B testing, save this provider workflow before selecting it from Main.
 
 For a manual standalone test, create a temporary non-public workflow with a Manual Trigger, a Code/Set node containing exactly `context` plus the validated `audio_input`, and an Execute Workflow node targeting **Speech-to-Text Provider V1**. Use only synthetic WAV/MP3 audio without real secrets or personal information. Test Thai speech, English speech, silence, an invalid credential, timeout behavior where safely reproducible, and a spoken prompt-injection sentence. A successful execution must end at **Normalize STT Result** with a trimmed transcript and language tag but no Base64. Silence must return internal 422; provider failures must return internal 503 without raw provider details.
 
@@ -254,3 +254,15 @@ The trusted model is `gemini-3.6-flash`, selected inside **Build Gemini Audio Re
 The sub-workflow accepts the four Phase 6A MIME values (`audio/mpeg`, `audio/wav`, `audio/webm`, and `audio/mp4`). The current Gemini generateContent audio guide explicitly lists WAV and MP3 but does not explicitly list WebM/MP4 audio MIME values. Validate WebM and MP4 with the selected credential and model in your deployed n8n version before relying on them; provider rejection remains a safe internal 503 result.
 
 Restrict and prune n8n execution history: the validation and HTTP nodes necessarily hold Base64 and provider payloads transiently even though **Normalize STT Result** removes them from the sub-workflow boundary.
+
+## 15. Phase 6C Main integration
+
+1. Import or update `n8n/workflows/text-analysis-main-v2.json` after importing and saving **Speech-to-Text Provider V1**.
+2. Open **Execute Speech-to-Text Provider V1** in Main and select the imported provider sub-workflow.
+3. Confirm **Wait for Sub-Workflow Completion** remains enabled.
+4. Do not place a Gemini credential in Main. The credential remains selected only on **Call Gemini Speech-to-Text** inside the STT sub-workflow.
+5. Save and activate/publish Speech-to-Text Provider V1 before Main.
+
+For a valid audio request, inspect the restricted execution path: **Prepare Audio Input** → **Build Speech-to-Text Input** → **Execute Speech-to-Text Provider V1** → **Validate STT Result** → **Normalize Audio Transcript** → **Build Intelligence Lookup Input**. The normalizer must output transcript-only canonical context with no `audio_input` or Base64.
+
+Manually test clear Thai scam speech, benign speech, a spoken prompt injection, silence, invalid STT credentials, and a synthetic spoken phone/domain. Expected public mappings are `422 AUDIO_TEXT_EXTRACTION_FAILED` for no usable speech and `503 AUDIO_TRANSCRIPTION_UNAVAILABLE` for provider/service failure. Successful audio uses the unchanged public analysis response and does not expose transcript, detected language, audio metadata, provider information, or diagnostics.

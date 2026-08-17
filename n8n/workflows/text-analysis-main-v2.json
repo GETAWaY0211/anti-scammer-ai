@@ -841,10 +841,10 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\ntry {\n  if (data.ok !== true || !data.context || data.context.input_type !== 'audio' || !data.audio_input) throw new Error('Prepared audio input is unavailable.');\n  return [{ json: {\n    ok: false,\n    status_code: 422,\n    public_response: {\n      error: {\n        code: 'AUDIO_TRANSCRIPTION_NOT_AVAILABLE',\n        message: 'Audio transcription is not available in this build.',\n        details: []\n      },\n      request_id: typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: { audio: { validated: true, transcription_available: false } }\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.context && typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
+        "jsCode": "const data = $input.first().json;\ntry {\n  if (data.ok !== true || !data.context || data.context.input_type !== 'audio' || !data.audio_input) throw new Error('Prepared audio input is unavailable.');\n  const context = data.context;\n  return [{ json: {\n    context: {\n      request_id: typeof context.request_id === 'string' ? context.request_id : null,\n      analysis_id: context.analysis_id,\n      language: typeof context.language === 'string' ? context.language : null\n    },\n    audio_input: {\n      mime_type: data.audio_input.mime_type,\n      base64_data: data.audio_input.base64_data,\n      decoded_size_bytes: data.audio_input.decoded_size_bytes\n    }\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.context && typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
       },
       "id": "6a000000-0000-4000-8000-000000000406",
-      "name": "Build Audio Transcription Not Available",
+      "name": "Build Speech-to-Text Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -852,17 +852,114 @@
         320
       ],
       "notesInFlow": true,
-      "notes": "Temporary Phase 6A terminal path. Replace with Speech-to-Text integration in Phase 6B/6C."
+      "notes": "Creates a fresh allowlisted Speech-to-Text input. Metadata and all analysis/intelligence state are excluded."
     },
     {
       "parameters": {
-        "content": "## Phase 6A — Audio contract and validation only\nAccepts canonical Base64 for audio/mpeg, audio/wav, audio/webm, and audio/mp4 up to 5 MiB decoded. Valid audio returns controlled 422 until Speech-to-Text is implemented. Audio never reaches intelligence, model routing, or scoring.",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Speech-to-Text Provider V1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "6a000000-0000-4000-8000-000000000408",
+      "name": "Execute Speech-to-Text Provider V1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        160,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "After import, select Speech-to-Text Provider V1. Credentials remain inside the provider sub-workflow."
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_TRANSCRIPT_LENGTH = 20000;\nconst LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;\nconst isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);\nfunction failure(status, requestId, category) {\n  const safeStatus = status === 422 || status === 503 ? status : 500;\n  const code = safeStatus === 422 ? 'AUDIO_TEXT_EXTRACTION_FAILED' : safeStatus === 503 ? 'AUDIO_TRANSCRIPTION_UNAVAILABLE' : 'INTERNAL_ERROR';\n  const message = safeStatus === 422\n    ? 'No usable speech could be transcribed from the submitted audio.'\n    : safeStatus === 503\n      ? 'The audio could not be transcribed at this time.'\n      : 'An unexpected internal error occurred.';\n  return {\n    ok: false,\n    status_code: safeStatus,\n    public_response: {\n      error: { code, message, details: [] },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: { audio_transcription: { failure_stage: 'stt_result_validation', error_category: category } }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const prepared = JSON.parse(JSON.stringify($('Prepare Audio Input').first().json));\n  const original = isRecord(prepared) && isRecord(prepared.context) ? prepared.context : null;\n  const requestId = original && original.request_id;\n  if (!original || original.input_type !== 'audio') return [{ json: failure(500, requestId, 'missing_original_audio_context') }];\n  if (raw.ok === false) {\n    if (raw.status_code === 422 && raw.error_category === 'no_usable_speech') return [{ json: failure(422, requestId, 'no_usable_speech') }];\n    if (raw.status_code === 503) return [{ json: failure(503, requestId, 'transcription_service_unavailable') }];\n    return [{ json: failure(500, requestId, 'invalid_stt_failure_contract') }];\n  }\n  const allowedRoot = new Set(['ok', 'audio_transcribed', 'context', 'transcript', 'detected_language', 'internal_diagnostics']);\n  if (!isRecord(raw) || Object.keys(raw).some((key) => !allowedRoot.has(key)) || raw.ok !== true || raw.audio_transcribed !== true || !isRecord(raw.context)) {\n    return [{ json: failure(500, requestId, 'invalid_stt_success_contract') }];\n  }\n  const contextKeys = Object.keys(raw.context);\n  if (contextKeys.length !== 3 || !contextKeys.includes('request_id') || !contextKeys.includes('analysis_id') || !contextKeys.includes('language')) {\n    return [{ json: failure(500, requestId, 'invalid_stt_context_contract') }];\n  }\n  if (raw.context.request_id !== original.request_id || raw.context.analysis_id !== original.analysis_id) {\n    return [{ json: failure(500, requestId, 'stt_context_correlation_mismatch') }];\n  }\n  if (typeof raw.transcript !== 'string' || !raw.transcript.trim() || raw.transcript.length > MAX_TRANSCRIPT_LENGTH ||\n      typeof raw.detected_language !== 'string' || !LANGUAGE_TAG.test(raw.detected_language.trim())) {\n    return [{ json: failure(500, requestId, 'invalid_transcript_contract') }];\n  }\n  return [{ json: {\n    ok: true,\n    original_context: original,\n    transcript: raw.transcript.trim(),\n    detected_language: raw.detected_language.trim().toLowerCase(),\n    audio_mime_type: prepared.audio_input && prepared.audio_input.mime_type\n  } }];\n} catch {\n  return [{ json: failure(500, null, 'stt_result_validation_failure') }];\n}"
+      },
+      "id": "6a000000-0000-4000-8000-000000000409",
+      "name": "Validate STT Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Strictly validates the adapter result and correlates request_id and analysis_id with the prepared audio context."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6a000000-0000-4000-8000-000000000410",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6a000000-0000-4000-8000-000000000411",
+      "name": "STT Result Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\ntry {\n  if (data.ok !== true || !data.original_context || typeof data.transcript !== 'string' || !data.transcript.trim()) throw new Error('Validated transcript is unavailable.');\n  const original = JSON.parse(JSON.stringify(data.original_context));\n  const detectedLanguage = data.detected_language;\n  const canonicalLanguage = typeof original.language === 'string' && original.language ? original.language : detectedLanguage;\n  return [{ json: {\n    ok: true,\n    context: {\n      ...original,\n      input_type: 'audio',\n      content: data.transcript.trim(),\n      language: canonicalLanguage,\n      source_context: {\n        original_input_type: 'audio',\n        audio_mime_type: typeof data.audio_mime_type === 'string' ? data.audio_mime_type : null,\n        detected_language: detectedLanguage\n      }\n    }\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.original_context && typeof data.original_context.request_id === 'string' ? data.original_context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
+      },
+      "id": "6a000000-0000-4000-8000-000000000412",
+      "name": "Normalize Audio Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Creates transcript-only canonical analysis context and drops audio/provider data before intelligence and model routing."
+    },
+    {
+      "parameters": {
+        "content": "## Phase 6C — Audio transcription integration\nValidated audio is sent only to Speech-to-Text Provider V1. The normalized transcript becomes canonical context.content and joins the existing intelligence, model validation, corroboration, and deterministic scoring path. Base64 is dropped before the canonical pipeline.",
         "height": 220,
         "width": 520,
         "color": 6
       },
       "id": "6a000000-0000-4000-8000-000000000407",
-      "name": "Phase 6A Audio Notes",
+      "name": "Phase 6C Audio Notes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -1317,7 +1414,7 @@
       "main": [
         [
           {
-            "node": "Build Audio Transcription Not Available",
+            "node": "Build Speech-to-Text Input",
             "type": "main",
             "index": 0
           }
@@ -1331,11 +1428,62 @@
         ]
       ]
     },
-    "Build Audio Transcription Not Available": {
+    "Build Speech-to-Text Input": {
       "main": [
         [
           {
+            "node": "Execute Speech-to-Text Provider V1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Speech-to-Text Provider V1": {
+      "main": [
+        [
+          {
+            "node": "Validate STT Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate STT Result": {
+      "main": [
+        [
+          {
+            "node": "STT Result Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STT Result Valid?": {
+      "main": [
+        [
+          {
+            "node": "Normalize Audio Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Audio Transcript": {
+      "main": [
+        [
+          {
+            "node": "Build Intelligence Lookup Input",
             "type": "main",
             "index": 0
           }
