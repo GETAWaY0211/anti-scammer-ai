@@ -1,6 +1,6 @@
 # Anti-Scammer AI n8n workflows
 
-This directory contains the text-and-image MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
+This directory contains the text, image, and Phase 6A audio-contract MVP workflows, including the public API orchestration, image-to-text preprocessing, deterministic model router, Gemini adapter, mock adapter, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
 ## Phase 5D-A — pgvector and semantic-pattern foundation
 
@@ -68,6 +68,18 @@ The current policy is:
 
 Corroboration never synthesizes indicators, changes categories, adds score bonuses, or forces human review. Its normalized output is internal execution data only. Public fields and API/taxonomy/scoring versions remain unchanged. Legitimate statements such as “ธนาคารไม่มีนโยบายขอ OTP” or “การลงทุนมีความเสี่ยงและไม่รับประกันผลตอบแทน” remain uncorroborated unless the strict LLM validator has accepted a required behavioral indicator.
 
+## Phase 6A — audio contract and validation only
+
+Main V2 now accepts `input_type: audio` with exactly `mime_type` and canonical Base64 `data`. The explicit allowlist is `audio/mpeg`, `audio/wav`, `audio/webm`, and `audio/mp4`. Encoded input is capped at 6,990,508 characters and decoded audio at **5 MiB (5,242,880 bytes)**. Data URI prefixes, whitespace, non-canonical Base64, URLs, paths, transcripts, duration, provider/model controls, and extra fields are rejected.
+
+Validation checks conservative container signatures without attempting full media parsing: WAV uses `RIFF....WAVE`; MP3 uses `ID3` or a structurally valid MPEG frame header; WebM uses EBML `1A 45 DF A3`; MP4/M4A uses a bounded ISO BMFF `ftyp` box. The client MIME type is never trusted alone.
+
+Valid audio is prepared in `audio_input`; its Base64 is deliberately absent from `context.content`. Because Speech-to-Text does not exist yet, the audio branch terminates safely with HTTP `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE`. It cannot reach Entity Intelligence, Semantic Pattern Lookup, Model Router, LLM validation, corroboration, or scoring. Raw audio is transient workflow data only and is never inserted into either intelligence database.
+
+- **Phase 6A:** public audio contract, deterministic Base64/signature validation, and controlled temporary response.
+- **Phase 6B:** a dedicated Speech-to-Text provider sub-workflow.
+- **Phase 6C:** validation of the transcript and conversion to canonical text before the existing intelligence and analysis pipeline.
+
 ## Phase 5C — deterministic entity intelligence integration
 
 `n8n/workflows/entity-intelligence-lookup-v1.json` is now called by Text Analysis Main V2 for both text and image-extracted content. It deterministically extracts phone, bank-account, and domain entities and performs a read-only PostgreSQL lookup before Model Router V1. A database failure stops analysis with safe HTTP `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`; Phase 5C does not retry or continue without intelligence.
@@ -116,17 +128,19 @@ Manual Phase 5C checks with the synthetic seed:
 
 These are manual runtime checks; do not treat them as complete until run in the imported n8n workflows. See `database/README.md` for database commands and networking details.
 
-## Architecture V2 — Phase 5C
+## Architecture V2 — Phase 6A
 
-`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Text and validated image-extracted content now pass through deterministic entity intelligence before the unchanged model router and strict model-output validation.
+`n8n/workflows/text-analysis-main-v2.json` remains the only public orchestration workflow. Text and validated image-extracted content pass through deterministic intelligence and analysis. Validated audio stops at the temporary controlled Phase 6A response.
 
 The runtime path is:
 
 ```text
 Webhook -> Validate Request -> Text Input?
   text  -> Prepare Input ---------------------------------------┐
+  non-text -> Image Input?
   image -> Prepare Image Input -> Image Preprocessor V1
          -> Normalize Extracted Text ---------------------------┤
+  audio -> Prepare Audio Input -> 422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE
                                                                v
 Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1
 
@@ -141,7 +155,7 @@ Model Router V1
   -> Provider Mock V1
 ```
 
-The main workflow owns the public API boundary, Base64 and magic-byte validation, input-type branching, extracted-text normalization, intelligence-result validation, provider-result validation, authoritative LLM-output validation, deterministic intelligence merge, scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no analysis-provider selection logic.
+The main workflow owns the public API boundary, image/audio Base64 and signature validation, explicit input-type branching, extracted-text normalization, intelligence-result validation, provider-result validation, authoritative LLM-output validation, deterministic intelligence merge, scoring, public response construction, and the single **Respond to Webhook** node named **Respond**. It contains no analysis-provider selection logic.
 
 **Image Preprocessor V1** owns the dedicated Gemini vision request and performs text extraction only. It treats image pixels and visible instructions as untrusted, preserves visible conversational text and order, and does not classify scams or calculate risk. It returns `422 IMAGE_TEXT_EXTRACTION_FAILED` when no usable text is found and safely normalizes provider failures to `503 IMAGE_PREPROCESSOR_UNAVAILABLE`.
 
@@ -375,13 +389,13 @@ Expected behavior: HTTP `413 Payload Too Large` with error code `CONTENT_TOO_LAR
 
 ## Validation and error behavior
 
-The request boundary accepts only `input_type`, `content`, `request_id`, `language`, and `metadata`. Text content must be non-empty and no longer than 10,000 characters. Image content must contain exactly `mime_type` and Base64-only `data`, use PNG/JPEG/WebP, match its magic bytes, and decode to no more than 5 MiB. The workflow rejects unknown fields and obvious sensitive metadata.
+The request boundary accepts only `input_type`, `content`, `request_id`, `language`, and `metadata`. Text content must be non-empty and no longer than 10,000 characters. Image content must contain exactly `mime_type` and Base64-only `data`, use PNG/JPEG/WebP, match its magic bytes, and decode to no more than 5 MiB. Audio uses the exact same two-field content shape, the four-format allowlist above, conservative signatures, and a 5 MiB decoded limit. The workflow rejects unknown fields and obvious sensitive metadata.
 
 Error branches use the API contract's safe error envelope:
 
-- `400` for request-validation failures, unsupported input type or image MIME, malformed Base64, data URI input, or MIME/signature mismatch
-- `413` for text or image content exceeding its configured limit
-- `422` when no usable image text is extracted or generated analysis output fails the strict schema/taxonomy validator
+- `400` for request-validation failures, unsupported input or media MIME, malformed Base64, data URI input, or MIME/signature mismatch
+- `413` for text, image, or audio content exceeding its configured limit
+- `422` when no usable image text is extracted, valid Phase 6A audio cannot yet be transcribed, or generated analysis output fails the strict schema/taxonomy validator
 - `503` when image preprocessing or analysis-provider service is unavailable
 - `500` when an internal preparation, validation, routing, scoring, or response-construction stage fails unexpectedly
 

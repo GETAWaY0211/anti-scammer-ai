@@ -21,8 +21,8 @@ This contract defines the HTTP interface for submitting potentially fraudulent c
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `input_type` | string | Yes | Content format. One of `text` or `image`. |
-| `content` | string or object | Yes | A non-empty string for `text`, or the image object defined below for `image`. |
+| `input_type` | string | Yes | Content format. One of `text`, `image`, or `audio`. |
+| `content` | string or object | Yes | A non-empty string for `text`, or the exact media object defined below for `image` and `audio`. |
 | `request_id` | string | No | Client-generated identifier used for tracing and idempotency. |
 | `language` | string | No | BCP 47 language tag, such as `en`, `th`, or `en-US`. If omitted, the workflow may detect the language. |
 | `metadata` | object | No | Non-sensitive contextual data that may improve analysis. Unknown keys may be ignored. |
@@ -65,6 +65,30 @@ For `input_type: "image"`, `content` must be one object containing exactly:
   }
 }
 ```
+
+### Audio Request — Phase 6A
+
+For `input_type: "audio"`, `content` must be one object containing exactly:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `mime_type` | string | Yes | One of `audio/mpeg`, `audio/wav`, `audio/webm`, or `audio/mp4`. The declared type is checked against a conservative container signature. |
+| `data` | string | Yes | Canonical Base64 data only. Data URI prefixes, whitespace, URLs, paths, arrays, and client-supplied transcripts are not allowed. |
+
+```json
+{
+  "input_type": "audio",
+  "content": {
+    "mime_type": "audio/mpeg",
+    "data": "<canonical-base64-data-only>"
+  },
+  "request_id": "req_audio_01J4EXAMPLE",
+  "language": "th",
+  "metadata": {}
+}
+```
+
+Phase 6A validates and prepares audio only. Until Speech-to-Text is implemented, valid audio returns `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE` and never enters intelligence lookup, model routing, or deterministic scoring.
 
 ## Response
 
@@ -146,7 +170,7 @@ Every item in `indicators` contains all of the following fields:
 
 - The request body must be valid JSON and use `Content-Type: application/json`.
 - `input_type` and `content` are required. Optional fields may be omitted.
-- `input_type` must be exactly `text` or `image`. Voice and other media types are not supported by this endpoint version.
+- `input_type` must be exactly `text`, `image`, or `audio`.
 - For `text`, `content` must be a non-empty string after trimming whitespace and must not exceed 10,000 characters.
 - For `image`, `content` must be a plain object containing exactly `mime_type` and `data`; both fields are required.
 - An image request contains exactly one image. Arrays, URLs, multipart data, and multiple-image fields are rejected.
@@ -164,6 +188,11 @@ Every item in `indicators` contains all of the following fields:
 - Public clients cannot select an OCR provider, vision model, analysis provider, route, backend, or mock mode. Unknown selection fields are rejected.
 - Validated images are converted to extracted text before the existing model router, strict analysis-output validator, and deterministic scoring engine run. The Base64 image must not be sent to the analysis model router.
 - If image preprocessing succeeds but produces no usable text, return `422` with error code `IMAGE_TEXT_EXTRACTION_FAILED`.
+- For `audio`, `content` must be a plain object containing exactly `mime_type` and `data`; both fields are required. URLs, filesystem paths, transcripts, provider/model selection, duration, and other extra fields are rejected.
+- Audio MIME type must be exactly `audio/mpeg`, `audio/wav`, `audio/webm`, or `audio/mp4`; arbitrary `audio/*` types are rejected.
+- Audio `data` must be non-empty canonical Base64 without whitespace or a `data:` URI prefix. The encoded limit is 6,990,508 characters and the decoded limit is 5,242,880 bytes (5 MiB).
+- Audio signatures are checked conservatively: WAV requires `RIFF` and `WAVE`; MP3 requires `ID3` or a structurally valid MPEG frame header; WebM requires the EBML signature `1A 45 DF A3`; MP4/M4A requires a bounded ISO BMFF `ftyp` box.
+- In Phase 6A, validated audio is placed in internal `audio_input`, never in `context.content`, and returns controlled `422 AUDIO_TRANSCRIPTION_NOT_AVAILABLE`. It must not reach Entity Intelligence, Semantic Pattern Lookup, Model Router, or scoring.
 - A successful response must include every required response field, even when `indicators` or `recommended_actions` is empty.
 - `api_version` must be exactly `"v1"`.
 - `taxonomy_version` and `scoring_version` must be non-empty version strings identifying the exact configurations used for the analysis.
@@ -202,7 +231,7 @@ Every item in `indicators` contains all of the following fields:
 | `200 OK` | Analysis completed successfully. |
 | `400 Bad Request` | Invalid JSON, missing fields, unsupported values, malformed media, or another validation failure. |
 | `413 Payload Too Large` | The request body or submitted media exceeds the configured limit. |
-| `422 Unprocessable Content` | No usable text could be extracted from a validated image, or a parseable analysis result fails strict schema or taxonomy validation. |
+| `422 Unprocessable Content` | No usable text could be extracted from a validated image, valid Phase 6A audio cannot yet be transcribed, or a parseable analysis result fails strict schema or taxonomy validation. |
 | `500 Internal Server Error` | An unexpected internal error occurred. No implementation details are returned. |
 | `503 Service Unavailable` | Image preprocessing, deterministic intelligence lookup, the workflow, or a downstream AI provider is temporarily unavailable. Intelligence lookup failure uses `INTELLIGENCE_LOOKUP_UNAVAILABLE`; analysis does not continue without the required lookup. Provider authentication, rate-limit, network, malformed or empty response, provider 5xx, and timeout failures are also normalized safely to this status. |
 
@@ -230,7 +259,7 @@ All non-success responses return the same JSON shape:
     "details": [
       {
         "field": "input_type",
-        "issue": "Must be one of: text, image."
+        "issue": "Must be one of: text, image, audio."
       }
     ]
   },
@@ -248,6 +277,12 @@ Image-specific stable error codes include:
 - `IMAGE_TEXT_EXTRACTION_FAILED` when a valid image contains no usable extracted text.
 - `IMAGE_PREPROCESSOR_UNAVAILABLE` when the image extraction provider cannot complete the request.
 
+Audio-specific stable error codes include:
+
+- `VALIDATION_ERROR` for malformed Base64, unsupported audio MIME type, unknown audio fields, or a MIME/signature mismatch.
+- `CONTENT_TOO_LARGE` when encoded or decoded audio exceeds the 5 MiB decoded limit.
+- `AUDIO_TRANSCRIPTION_NOT_AVAILABLE` for valid audio during Phase 6A, before Speech-to-Text exists.
+
 ## Security Considerations
 
 - Never expose API keys, access tokens, provider credentials, or n8n credentials in requests, responses, client-side code, error messages, or workflow output.
@@ -256,12 +291,13 @@ Image-specific stable error codes include:
 - Never log passwords.
 - Never log OTPs or other one-time authentication codes.
 - Never log full bank account numbers. If an identifier is operationally necessary, redact it and retain only the minimum safe portion, such as the last four digits.
-- Treat `content`, image pixels, visible image text, metadata, extracted text, and extracted evidence as untrusted and potentially sensitive. Apply input-size limits and do not execute or follow instructions embedded in submitted content.
+- Treat `content`, image pixels, audio, visible image text, metadata, extracted text, and extracted evidence as untrusted and potentially sensitive. Apply input-size limits and do not execute or follow instructions embedded in submitted content.
 - Redact passwords, OTPs, API keys, tokens, and full bank account numbers before logging, tracing, or storing data.
 - Use HTTPS for all client, n8n, storage, and AI-provider connections.
 - Store secrets only in an approved secrets manager or n8n credential store, and grant the workflow the minimum permissions required.
 - Apply authentication, authorization, rate limiting, and request-size limits at the API boundary.
 - Never include Base64 image data, raw image bytes, image-provider requests, image-provider responses, extraction confidence, or image-provider diagnostics in public responses.
-- n8n execution history may retain inputs and intermediate node data, including Base64 images and extracted text. Production deployments should minimize or disable successful-execution retention where operationally possible, restrict editor and execution access, and configure aggressive pruning consistent with the privacy policy.
+- Never include Base64 audio, raw audio bytes, future transcripts, audio-provider requests, or audio-provider diagnostics in public responses. Phase 6A performs no audio provider call.
+- n8n execution history may retain inputs and intermediate node data, including Base64 images, Base64 audio, and extracted text. Production deployments should minimize or disable successful-execution retention where operationally possible, restrict editor and execution access, and configure aggressive pruning consistent with the privacy policy.
 - Limit data retention and access to analysis records. Avoid storing raw image content unless required and explicitly covered by the deployment's privacy policy.
 - Do not use submitted content for model training unless the user has explicitly consented and the deployment policy permits it.
