@@ -127,7 +127,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.gemini_request) }}",
         "options": {
-          "timeout": 60000,
+          "timeout": 120000,
           "response": {
             "response": {
               "fullResponse": true,
