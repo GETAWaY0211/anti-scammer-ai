@@ -135,8 +135,10 @@ test('semantic test fixture covers three paraphrases and two benign cases withou
 
 test('lookup graph terminal paths normalize once and never reach Main or scoring', () => {
   const response = node(lookup, 'Normalize Semantic Intelligence Result');
+  const usage = node(lookup, 'Attach Embedding Usage');
   assert.ok(response);
-  assert.equal(lookup.connections[response.name], undefined);
+  assert.deepEqual(lookup.connections[response.name].main[0].map((edge) => edge.node), ['Attach Embedding Usage']);
+  assert.equal(lookup.connections[usage.name], undefined);
   const serialized = JSON.stringify(lookup);
   assert.doesNotMatch(serialized, /text-analysis-main-v2|Score Risk|risk_score|KNOWN_SCAM_PATTERN/);
   for (const gate of ['Semantic Input Valid?', 'Embedding Request Ready?', 'Embedding Parsed?']) {

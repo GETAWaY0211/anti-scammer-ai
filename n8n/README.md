@@ -2,6 +2,52 @@
 
 This directory contains the text, image, and audio-analysis MVP workflows, including public API orchestration, media-to-text preprocessing, deterministic model routing, strict model-output validation, deterministic risk scoring, and standalone behavioral baselines.
 
+## Internal Gemini usage tracking
+
+Gemini token usage is captured from provider-reported <code>usageMetadata</code> after the analysis, image extraction, Speech-to-Text, and semantic embedding HTTP calls. The workflows normalize non-negative token counts into internal diagnostics only; they do not estimate missing counts or make a separate token-count API call. If a provider response has no valid usage metadata, the relevant <code>token_usage</code> or <code>embedding_usage</code> value is <code>null</code>.
+
+For a completed Main V2 execution, inspect **Aggregate AI Usage**:
+
+~~~json
+{
+  "usage": {
+    "calls": [
+      {
+        "component": "final_analysis",
+        "provider": "gemini",
+        "token_usage": {
+          "input_tokens": 1234,
+          "output_tokens": 321,
+          "total_tokens": 1555,
+          "cached_input_tokens": 0,
+          "thinking_tokens": 0
+        }
+      }
+    ],
+    "total": {
+      "input_tokens": 1234,
+      "output_tokens": 321,
+      "total_tokens": 1555,
+      "cached_input_tokens": 0,
+      "thinking_tokens": 0
+    }
+  }
+}
+~~~
+
+Only calls that actually reached an AI provider are listed. A listed call may have <code>token_usage: null</code> when Gemini did not return valid usage metadata. Optional provider-reported tool-use prompt tokens may appear as <code>tool_input_tokens</code> on an individual call; the stable aggregate total retains the five fields shown above.
+
+The active components expose usage at these internal paths:
+
+- Analysis: <code>internal_diagnostics.provider.token_usage</code>
+- Image extraction: <code>internal_diagnostics.image_preprocessor.token_usage</code>
+- Speech-to-Text: <code>internal_diagnostics.audio_transcription.token_usage</code>
+- Semantic embedding: <code>internal_diagnostics.semantic_lookup.embedding_usage</code>
+
+The final Respond node still returns only <code>public_response</code>; usage, provider identity, model details, raw <code>usageMetadata</code>, raw responses, prompts, and billing information are never public fields. Counts do not include pricing or cost calculations, and no pricing is hard-coded into runtime workflows.
+
+Usage tracking does not enable billing. The project remains on the Gemini Free Tier unless billing is enabled separately for the Google project. These counts exist only to support later external Paid Tier cost estimation. n8n execution retention may retain internal diagnostics, so production retention settings should still be minimized.
+
 ## Phase 5D-A — pgvector and semantic-pattern foundation
 
 The existing PostgreSQL 17 Compose service now uses `pgvector/pgvector:pg17`, while retaining the same environment variables, port, container name, network, and persistent `postgres_data` volume. Migration `database/migrations/002_enable_pgvector_and_create_scam_patterns.sql` enables the `vector` extension and creates relational `scam_patterns` and `scam_pattern_examples` tables for curated intelligence.

@@ -246,5 +246,6 @@ test('both text and image paths reach authoritative lookup, optional semantic lo
   assert.ok(edges('Intelligence Lookup Succeeded?').includes('Finalize Response'));
   assert.deepEqual(edges('Build Semantic Lookup Input'), ['Execute Semantic Pattern Lookup V1']);
   assert.deepEqual(edges('Validate Semantic Pattern Result'), ['Execute Model Router V1']);
-  assert.deepEqual(edges('Finalize Response'), ['Respond']);
+  assert.deepEqual(edges('Finalize Response'), ['Aggregate AI Usage']);
+  assert.deepEqual(edges('Aggregate AI Usage'), ['Respond']);
 });

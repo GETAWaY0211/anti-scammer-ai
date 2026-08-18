@@ -192,6 +192,19 @@
         -820,
         -500
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction isCount(value) {\n  return Number.isInteger(value) && value >= 0;\n}\nfunction normalizeTokenUsage(metadata) {\n  if (!isRecord(metadata) || !isCount(metadata.promptTokenCount) || !isCount(metadata.candidatesTokenCount) || !isCount(metadata.totalTokenCount)) return null;\n  if (metadata.cachedContentTokenCount !== undefined && !isCount(metadata.cachedContentTokenCount)) return null;\n  if (metadata.thoughtsTokenCount !== undefined && !isCount(metadata.thoughtsTokenCount)) return null;\n  const normalized = {\n    input_tokens: metadata.promptTokenCount,\n    output_tokens: metadata.candidatesTokenCount,\n    total_tokens: metadata.totalTokenCount,\n    cached_input_tokens: metadata.cachedContentTokenCount ?? 0,\n    thinking_tokens: metadata.thoughtsTokenCount ?? 0\n  };\n  if (metadata.toolUsePromptTokenCount !== undefined) {\n    if (!isCount(metadata.toolUsePromptTokenCount)) return null;\n    normalized.tool_input_tokens = metadata.toolUsePromptTokenCount;\n  }\n  return normalized;\n}\nconst data = JSON.parse(JSON.stringify($input.first().json));\nlet providerCallPerformed = false;\nlet tokenUsage = null;\ntry {\n  const response = $('Call Gemini API').first().json;\n  providerCallPerformed = true;\n  let body = response && response.body !== undefined ? response.body : response;\n  if (typeof body === 'string') body = JSON.parse(body);\n  tokenUsage = normalizeTokenUsage(body && body.usageMetadata);\n} catch {}\nconst diagnostics = isRecord(data.internal_diagnostics) ? data.internal_diagnostics : {};\nconst provider = isRecord(diagnostics.provider) ? diagnostics.provider : {};\ndata.internal_diagnostics = {\n  ...diagnostics,\n  provider: {\n    ...provider,\n    provider_call_performed: providerCallPerformed,\n    token_usage: tokenUsage\n  }\n};\nreturn [{ json: data }];"
+      },
+      "id": "c1000000-0000-4000-8000-000000000101",
+      "name": "Attach Gemini Usage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        40
+      ]
     }
   ],
   "connections": {
@@ -280,6 +293,17 @@
         [
           {
             "node": "Return Adapter Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Adapter Result": {
+      "main": [
+        [
+          {
+            "node": "Attach Gemini Usage",
             "type": "main",
             "index": 0
           }

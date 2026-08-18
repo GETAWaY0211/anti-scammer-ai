@@ -152,8 +152,8 @@ test('spoken prompt injection is transcribed literally and never interpreted', (
 test('Gemini request uses trusted model, inline audio, minimal structured output, and no sampling controls', () => {
   const validated = runCode('Validate STT Input', inputFor('audio/wav', wavBytes()));
   const prepared = runCode('Build Gemini Audio Request', validated);
-  assert.equal(prepared.stt_provider_model, 'gemini-3.6-flash');
-  assert.match(prepared.stt_provider_url, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.6-flash:generateContent$/);
+  assert.equal(prepared.stt_provider_model, 'gemini-3.6-flash-lite');
+  assert.match(prepared.stt_provider_url, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.6-flash-lite:generateContent$/);
   const request = prepared.stt_provider_request;
   assert.equal(request.contents[0].parts[1].inlineData.mimeType, 'audio/wav');
   assert.equal(request.contents[0].parts[1].inlineData.data, validated.audio_input.base64_data);
@@ -184,17 +184,17 @@ test('workflow remains an isolated zero-response, zero-database, transcription-o
   assert.equal(main.nodes.some((entry) => entry.name === 'Build Audio Transcription Not Available'), false);
 });
 
-test('all subworkflow branches terminate at Normalize STT Result exactly once', () => {
+test('all subworkflow branches pass normalization and terminate at Attach STT Usage', () => {
   const adjacency = new Map(Object.entries(workflow.connections).map(([name, value]) => [
     name,
     (value.main || []).flat().filter(Boolean).map((edge) => edge.node)
   ]));
-  const reachesNormalizer = (start) => {
+  const reachesTerminal = (start) => {
     const pending = [start];
     const visited = new Set();
     while (pending.length) {
       const current = pending.pop();
-      if (current === 'Normalize STT Result') return true;
+      if (current === 'Attach STT Usage') return true;
       if (visited.has(current)) continue;
       visited.add(current);
       pending.push(...(adjacency.get(current) || []));
@@ -202,10 +202,10 @@ test('all subworkflow branches terminate at Normalize STT Result exactly once', 
     return false;
   };
   for (const workflowNode of workflow.nodes.filter((entry) => entry.type !== 'n8n-nodes-base.stickyNote')) {
-    assert.equal(reachesNormalizer(workflowNode.name), true, workflowNode.name);
+    assert.equal(reachesTerminal(workflowNode.name), true, workflowNode.name);
   }
   const terminals = workflow.nodes.filter((entry) => entry.type !== 'n8n-nodes-base.stickyNote' && !(adjacency.get(entry.name) || []).length).map((entry) => entry.name);
-  assert.deepEqual(terminals, ['Normalize STT Result']);
+  assert.deepEqual(terminals, ['Attach STT Usage']);
 });
 
 test('all Code nodes compile and workflow JSON contains no API key or secret', () => {

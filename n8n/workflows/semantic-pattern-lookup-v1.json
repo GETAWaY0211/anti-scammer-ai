@@ -245,6 +245,19 @@
         -880,
         -420
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction isCount(value) {\n  return Number.isInteger(value) && value >= 0;\n}\nfunction normalizeEmbeddingUsage(metadata) {\n  if (!isRecord(metadata) || !isCount(metadata.promptTokenCount)) return null;\n  const outputTokens = metadata.candidatesTokenCount === undefined ? 0 : metadata.candidatesTokenCount;\n  const cachedTokens = metadata.cachedContentTokenCount === undefined ? 0 : metadata.cachedContentTokenCount;\n  const thinkingTokens = metadata.thoughtsTokenCount === undefined ? 0 : metadata.thoughtsTokenCount;\n  if (![outputTokens, cachedTokens, thinkingTokens].every(isCount)) return null;\n  const totalTokens = metadata.totalTokenCount === undefined\n    ? metadata.promptTokenCount + outputTokens + thinkingTokens\n    : metadata.totalTokenCount;\n  if (!isCount(totalTokens)) return null;\n  const normalized = {\n    input_tokens: metadata.promptTokenCount,\n    output_tokens: outputTokens,\n    total_tokens: totalTokens,\n    cached_input_tokens: cachedTokens,\n    thinking_tokens: thinkingTokens\n  };\n  if (metadata.toolUsePromptTokenCount !== undefined) {\n    if (!isCount(metadata.toolUsePromptTokenCount)) return null;\n    normalized.tool_input_tokens = metadata.toolUsePromptTokenCount;\n  }\n  return normalized;\n}\nconst data = JSON.parse(JSON.stringify($input.first().json));\nlet embeddingCallPerformed = false;\nlet embeddingUsage = null;\ntry {\n  const response = $('Generate Query Embedding').first().json;\n  embeddingCallPerformed = true;\n  let body = response && response.body !== undefined ? response.body : response;\n  if (typeof body === 'string') body = JSON.parse(body);\n  embeddingUsage = normalizeEmbeddingUsage(body && body.usageMetadata);\n} catch {}\nconst diagnostics = isRecord(data.internal_diagnostics) ? data.internal_diagnostics : {};\nconst semanticLookup = isRecord(diagnostics.semantic_lookup) ? diagnostics.semantic_lookup : {};\ndata.internal_diagnostics = {\n  ...diagnostics,\n  semantic_lookup: {\n    ...semanticLookup,\n    provider_name: 'gemini',\n    embedding_call_performed: embeddingCallPerformed,\n    embedding_usage: embeddingUsage\n  }\n};\nreturn [{ json: data }];"
+      },
+      "id": "c1000000-0000-4000-8000-000000000104",
+      "name": "Attach Embedding Usage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        40
+      ]
     }
   ],
   "connections": {
@@ -362,6 +375,17 @@
         [
           {
             "node": "Normalize Semantic Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Semantic Intelligence Result": {
+      "main": [
+        [
+          {
+            "node": "Attach Embedding Usage",
             "type": "main",
             "index": 0
           }
