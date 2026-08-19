@@ -9,7 +9,9 @@
         "httpMethod": "POST",
         "path": "api/v1/analyze",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "allowedOrigins": "*"
+        }
       },
       "id": "c56bb45a-4fe8-4bea-960f-8d310f9d52c4",
       "name": "Webhook",
@@ -276,7 +278,23 @@
         "respondWith": "json",
         "responseBody": "={{ $json.public_response }}",
         "options": {
-          "responseCode": "={{ [200, 400, 413, 422, 500, 503].includes(Number($json.status_code)) ? Number($json.status_code) : 500 }}"
+          "responseCode": "={{ [200, 400, 413, 422, 500, 503].includes(Number($json.status_code)) ? Number($json.status_code) : 500 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              }
+            ]
+          }
         }
       },
       "id": "682471d2-166f-4b25-a797-9a8f53699489",

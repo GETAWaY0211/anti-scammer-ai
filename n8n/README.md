@@ -317,9 +317,20 @@ Import and configure the workflows in this order:
 16. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
 17. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
 18. In **Execute Speech-to-Text Provider V1**, select the imported **Speech-to-Text Provider V1** workflow.
-19. Save and activate or publish every workflow in dependency order.
+19. Import `n8n/workflows/cors-preflight-analyze-api.json`.
+20. Save and activate or publish every workflow in dependency order.
 
-The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Speech-to-Text Provider V1, Model Router V1, URL Resolver Intelligence V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, then Text Analysis Main V2.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Speech-to-Text Provider V1, Model Router V1, URL Resolver Intelligence V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, Text Analysis Main V2, then CORS Preflight - Analyze API.
+
+## Demo browser CORS
+
+`n8n/workflows/cors-preflight-analyze-api.json` is a dedicated public preflight workflow for `OPTIONS /webhook/api/v1/analyze`. It immediately returns `204 No Content` with `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: POST, OPTIONS`, `Access-Control-Allow-Headers: Content-Type`, and `Access-Control-Max-Age: 86400`. It contains only one Webhook and one Respond to Webhook node, so an OPTIONS request cannot run Gemini, media processing, intelligence lookups, URL resolution, semantic embedding, or deterministic scoring.
+
+The Main Webhook sets n8n's **Allowed Origins (CORS)** option to `*`, and the single **Respond** node adds the same allow-origin/method/header policy to every POST result, including successful and safe `400`, `413`, `422`, `500`, and `503` responses. Response bodies and the public API schema are unchanged. Neither workflow enables `Access-Control-Allow-Credentials`; wildcard origins must not be combined with browser cookies or credentialed CORS.
+
+After import, verify that the preflight Webhook retains HTTP method **OPTIONS** and path `api/v1/analyze`, then publish both **Text Analysis Main V2** and **CORS Preflight - Analyze API**. Test the production `/webhook/` URL rather than `/webhook-test/`. Cloudflare Tunnel needs no CORS-specific change because it only forwards these API responses.
+
+This wildcard policy is for hackathon/demo development with changing localhost ports. Before production, replace `*` in the Main Webhook's Allowed Origins option and both Respond nodes with an approved frontend-origin allowlist. Do not expose n8n editor/admin routes through this policy. Current n8n releases may intercept OPTIONS and return `204` from the webhook server before any workflow runs; this is safe and still prevents analysis execution. Some releases do not offer OPTIONS in the Webhook method picker even though imported workflows may retain it. If the target release rejects or cannot publish the imported OPTIONS webhook, rely on the Main Webhook's built-in preflight handling when its real OPTIONS response passes the checks below; otherwise handle OPTIONS at the trusted reverse proxy/edge or upgrade to a compatible n8n release rather than routing preflight through the analysis workflow.
 
 ## Phase 6D — URL Resolver Intelligence V1
 
