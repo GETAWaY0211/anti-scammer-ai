@@ -1,6 +1,9 @@
 {
   "name": "Text Analysis Main V2",
   "nodes": [
+    {"parameters":{"jsCode":"const data = $input.first().json;\ntry {\n  if (data.ok !== true || !data.context || typeof data.context.content !== 'string' || !data.context.content.trim() || typeof data.context.analysis_id !== 'string' || !data.context.analysis_id.trim()) throw new Error('Canonical analysis context is unavailable.');\n  const resolverContext = {\n    request_id: typeof data.context.request_id === 'string' ? data.context.request_id : null,\n    analysis_id: data.context.analysis_id,\n    content: data.context.content\n  };\n  return [{ json: { context: resolverContext } }];\n} catch {\n  return [{ json: { ok: false, status_code: 500, internal_diagnostics: { url_resolver: { failure_stage: 'input_adapter', error_category: 'canonical_context_unavailable' } } } }];\n}"},"id":"6d100000-0000-4000-8000-000000000001","name":"Build URL Resolver Input","type":"n8n-nodes-base.code","typeVersion":2,"position":[380,-420],"notesInFlow":true,"notes":"Creates a fresh allowlisted resolver envelope containing only request_id, analysis_id, and canonical text."},
+    {"parameters":{"workflowId":{"__rl":true,"value":"","mode":"list","cachedResultName":"URL Resolver Intelligence V1"},"workflowInputs":{"mappingMode":"defineBelow","value":{},"matchingColumns":[],"schema":[],"attemptToConvertTypes":false,"convertFieldsToString":true},"mode":"each","options":{"waitForSubWorkflow":true}},"id":"6d100000-0000-4000-8000-000000000002","name":"Execute URL Resolver Intelligence V1","type":"n8n-nodes-base.executeWorkflow","typeVersion":1.3,"position":[600,-420],"onError":"continueRegularOutput"},
+    {"parameters":{"jsCode":"const ALLOWED_STATUSES = new Set(['resolved','not_required','timeout','dns_failure','blocked_destination','invalid_redirect','too_many_redirects','network_error','unsupported']);\nfunction isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }\nfunction findCanonicalContext(analysisId) {\n  for (const nodeName of ['Normalize Audio Transcript','Normalize Extracted Text','Prepare Input']) {\n    try { const candidate = $(nodeName).first().json; if (candidate && candidate.ok === true && isRecord(candidate.context) && candidate.context.analysis_id === analysisId) return JSON.parse(JSON.stringify(candidate.context)); } catch {}\n  }\n  return null;\n}\nfunction unavailable(context, category) { return { ok: true, context, url_intelligence: { available: false, urls_detected: 0, urls_attempted: 0, urls_resolved: 0, results: [] }, internal_diagnostics: { url_resolver: { available: false, failure_stage: 'url_resolution', error_category: category } } }; }\ntry {\n  const request = $('Build URL Resolver Input').first().json;\n  const requestContext = isRecord(request.context) ? request.context : null;\n  const context = requestContext ? findCanonicalContext(requestContext.analysis_id) : null;\n  if (!context) return [{ json: { ok: false, status_code: 500, public_response: { error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] }, request_id: requestContext && typeof requestContext.request_id === 'string' ? requestContext.request_id : null, timestamp: new Date().toISOString() } } }];\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  if (raw.ok !== true || !isRecord(raw.context) || raw.context.request_id !== requestContext.request_id || raw.context.analysis_id !== requestContext.analysis_id || !isRecord(raw.url_intelligence)) return [{ json: unavailable(context, 'resolver_unavailable') }];\n  const intelligence = raw.url_intelligence;\n  if (!Number.isInteger(intelligence.urls_detected) || intelligence.urls_detected < 0 || intelligence.urls_detected > 10 || !Number.isInteger(intelligence.urls_attempted) || intelligence.urls_attempted < 0 || intelligence.urls_attempted > 5 || !Number.isInteger(intelligence.urls_resolved) || intelligence.urls_resolved < 0 || intelligence.urls_resolved > intelligence.urls_attempted || !Array.isArray(intelligence.results) || intelligence.results.length > 10) return [{ json: unavailable(context, 'invalid_resolver_counts') }];\n  const domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/;\n  const results = [];\n  for (const result of intelligence.results) {\n    const allowed = new Set(['original_domain','final_domain','is_short_url','resolved','redirect_count','resolution_status']);\n    if (!isRecord(result) || Object.keys(result).some((key) => !allowed.has(key)) || !(result.original_domain === null || (typeof result.original_domain === 'string' && domainPattern.test(result.original_domain))) || !(result.final_domain === null || (typeof result.final_domain === 'string' && domainPattern.test(result.final_domain))) || typeof result.is_short_url !== 'boolean' || typeof result.resolved !== 'boolean' || !Number.isInteger(result.redirect_count) || result.redirect_count < 0 || result.redirect_count > 3 || !ALLOWED_STATUSES.has(result.resolution_status) || (result.resolved && (!result.final_domain || result.resolution_status !== 'resolved'))) return [{ json: unavailable(context, 'invalid_resolver_result') }];\n    results.push(result);\n  }\n  return [{ json: { ok: true, context, url_intelligence: { available: true, urls_detected: intelligence.urls_detected, urls_attempted: intelligence.urls_attempted, urls_resolved: intelligence.urls_resolved, results }, internal_diagnostics: { url_resolver: { available: true, urls_detected: intelligence.urls_detected, urls_attempted: intelligence.urls_attempted, urls_resolved: intelligence.urls_resolved } } } }];\n} catch {\n  const request = (() => { try { return $('Build URL Resolver Input').first().json; } catch { return {}; } })();\n  const context = request && request.context ? findCanonicalContext(request.context.analysis_id) : null;\n  if (context) return [{ json: unavailable(context, 'resolver_result_validation_failure') }];\n  return [{ json: { ok: false, status_code: 500, public_response: { error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] }, request_id: null, timestamp: new Date().toISOString() } } }];\n}"},"id":"6d100000-0000-4000-8000-000000000003","name":"Validate URL Resolver Result","type":"n8n-nodes-base.code","typeVersion":2,"position":[820,-420],"notesInFlow":true,"notes":"URL resolution is optional. Invalid resolver output becomes safe unavailable diagnostics and canonical analysis continues."},
     {
       "parameters": {
         "httpMethod": "POST",
@@ -548,7 +551,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\ntry {\n  if (data.ok !== true || !data.context || typeof data.context.content !== 'string' || !data.context.content.trim()) {\n    throw new Error('Prepared analysis context is unavailable.');\n  }\n  return [{ json: { context: JSON.parse(JSON.stringify(data.context)) } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.context && typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
+        "jsCode": "const data = $input.first().json;\ntry {\n  if (data.ok !== true || !data.context || typeof data.context.content !== 'string' || !data.context.content.trim()) throw new Error('Prepared analysis context is unavailable.');\n  const results = data.url_intelligence && Array.isArray(data.url_intelligence.results) ? data.url_intelligence.results : [];\n  const trustedDomainCandidates = [];\n  const seen = new Set();\n  for (const result of results) {\n    const domain = result && result.resolved === true && typeof result.final_domain === 'string' ? result.final_domain : null;\n    if (!domain || seen.has(domain)) continue;\n    seen.add(domain);\n    trustedDomainCandidates.push(domain);\n    if (trustedDomainCandidates.length >= 5) break;\n  }\n  return [{ json: {\n    context: JSON.parse(JSON.stringify(data.context)),\n    trusted_domain_candidates: trustedDomainCandidates\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    public_response: {\n      error: { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.', details: [] },\n      request_id: data && data.context && typeof data.context.request_id === 'string' ? data.context.request_id : null,\n      timestamp: new Date().toISOString()\n    }\n  } }];\n}"
       },
       "id": "5c000000-0000-4000-8000-000000000100",
       "name": "Build Intelligence Lookup Input",
@@ -591,7 +594,7 @@
     },
     {
       "parameters": {
-        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction failure(statusCode, requestId, category) {\n  const unavailable = statusCode === 503;\n  return {\n    ok: false,\n    status_code: unavailable ? 503 : 500,\n    public_response: {\n      error: {\n        code: unavailable ? 'INTELLIGENCE_LOOKUP_UNAVAILABLE' : 'INTERNAL_ERROR',\n        message: unavailable\n          ? 'The intelligence lookup service is temporarily unavailable.'\n          : 'An unexpected internal error occurred.',\n        details: []\n      },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      entity_lookup: {\n        failure_stage: unavailable ? 'database_lookup' : 'lookup_contract',\n        error_category: category\n      }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const lookupInput = JSON.parse(JSON.stringify($('Build Intelligence Lookup Input').first().json));\n  const context = isRecord(lookupInput.context) ? lookupInput.context : null;\n  const requestId = context && context.request_id;\n  if (raw.ok === true && isRecord(raw.intelligence) && Array.isArray(raw.intelligence.entities) && context) {\n    return [{ json: {\n      ok: true,\n      context,\n      intelligence: raw.intelligence,\n      internal_diagnostics: isRecord(raw.internal_diagnostics) ? raw.internal_diagnostics : {}\n    } }];\n  }\n  if (raw.ok === false && raw.status_code === 503) {\n    return [{ json: failure(503, requestId, 'database_unavailable') }];\n  }\n  return [{ json: failure(500, requestId, 'invalid_lookup_result') }];\n} catch {\n  return [{ json: failure(500, null, 'lookup_result_validation_failure') }];\n}"
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction resolverState() {\n  try {\n    const value = $('Validate URL Resolver Result').first().json;\n    return isRecord(value) ? value : {};\n  } catch {\n    return {};\n  }\n}\nfunction failure(statusCode, requestId, category) {\n  const unavailable = statusCode === 503;\n  const resolver = resolverState();\n  return {\n    ok: false,\n    status_code: unavailable ? 503 : 500,\n    public_response: {\n      error: {\n        code: unavailable ? 'INTELLIGENCE_LOOKUP_UNAVAILABLE' : 'INTERNAL_ERROR',\n        message: unavailable ? 'The intelligence lookup service is temporarily unavailable.' : 'An unexpected internal error occurred.',\n        details: []\n      },\n      request_id: typeof requestId === 'string' && requestId ? requestId : null,\n      timestamp: new Date().toISOString()\n    },\n    internal_diagnostics: {\n      ...(isRecord(resolver.internal_diagnostics) ? resolver.internal_diagnostics : {}),\n      entity_lookup: {\n        failure_stage: unavailable ? 'database_lookup' : 'lookup_contract',\n        error_category: category\n      }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  const lookupInput = JSON.parse(JSON.stringify($('Build Intelligence Lookup Input').first().json));\n  const context = isRecord(lookupInput.context) ? lookupInput.context : null;\n  const requestId = context && context.request_id;\n  const resolver = resolverState();\n  if (raw.ok === true && isRecord(raw.intelligence) && Array.isArray(raw.intelligence.entities) && context) {\n    return [{ json: {\n      ok: true,\n      context,\n      intelligence: raw.intelligence,\n      url_intelligence: isRecord(resolver.url_intelligence) ? resolver.url_intelligence : {\n        available: false, urls_detected: 0, urls_attempted: 0, urls_resolved: 0, results: []\n      },\n      internal_diagnostics: {\n        ...(isRecord(resolver.internal_diagnostics) ? resolver.internal_diagnostics : {}),\n        ...(isRecord(raw.internal_diagnostics) ? raw.internal_diagnostics : {})\n      }\n    } }];\n  }\n  if (raw.ok === false && raw.status_code === 503) return [{ json: failure(503, requestId, 'database_unavailable') }];\n  return [{ json: failure(500, requestId, 'invalid_lookup_result') }];\n} catch {\n  return [{ json: failure(500, null, 'lookup_result_validation_failure') }];\n}"
       },
       "id": "5c000000-0000-4000-8000-000000000102",
       "name": "Validate Intelligence Lookup Result",
@@ -1058,7 +1061,7 @@
       "main": [
         [
           {
-            "node": "Build Intelligence Lookup Input",
+            "node": "Build URL Resolver Input",
             "type": "main",
             "index": 0
           }
@@ -1127,7 +1130,7 @@
       "main": [
         [
           {
-            "node": "Build Intelligence Lookup Input",
+            "node": "Build URL Resolver Input",
             "type": "main",
             "index": 0
           }
@@ -1284,6 +1287,39 @@
         [
           {
             "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build URL Resolver Input": {
+      "main": [
+        [
+          {
+            "node": "Execute URL Resolver Intelligence V1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute URL Resolver Intelligence V1": {
+      "main": [
+        [
+          {
+            "node": "Validate URL Resolver Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate URL Resolver Result": {
+      "main": [
+        [
+          {
+            "node": "Build Intelligence Lookup Input",
             "type": "main",
             "index": 0
           }
@@ -1509,7 +1545,7 @@
       "main": [
         [
           {
-            "node": "Build Intelligence Lookup Input",
+            "node": "Build URL Resolver Input",
             "type": "main",
             "index": 0
           }

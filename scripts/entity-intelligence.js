@@ -59,11 +59,18 @@ function addCandidate(candidates, entityType, normalizedValue, position) {
   }
 }
 
-function extractEntities(content) {
+function extractEntities(content, trustedDomainCandidates = []) {
   if (typeof content !== 'string' || !content.trim()) return [];
   const candidates = new Map();
   const phoneValues = new Set();
   const phoneRanges = [];
+
+  if (Array.isArray(trustedDomainCandidates)) {
+    trustedDomainCandidates.slice(0, MAX_ENTITIES_PER_TYPE).forEach((value, index) => {
+      const normalized = normalizeDomain(value);
+      if (normalized) addCandidate(candidates, 'domain', normalized, -1000 + index);
+    });
+  }
 
   const phonePattern = /(?<!\d)(?:\+66|0066|0)(?:[\s().-]*\d){8,10}(?!\d)/g;
   for (const match of content.matchAll(phonePattern)) {

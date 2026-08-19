@@ -1,0 +1,171 @@
+{
+  "name": "URL Resolver Intelligence V1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "6d000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction failure(requestId, category) {\n  return {\n    ok: false,\n    resolver_input_valid: false,\n    status_code: 500,\n    internal_diagnostics: {\n      url_resolver: {\n        failure_stage: 'input_validation',\n        error_category: category,\n        request_id: typeof requestId === 'string' && requestId ? requestId : null\n      }\n    }\n  };\n}\ntry {\n  const raw = $input.first().json;\n  if (!isRecord(raw) || Object.keys(raw).length !== 1 || !Object.prototype.hasOwnProperty.call(raw, 'context')) {\n    return [{ json: failure(null, 'invalid_resolver_envelope') }];\n  }\n  const context = raw.context;\n  const allowed = new Set(['request_id', 'analysis_id', 'content']);\n  const requestId = isRecord(context) ? context.request_id : null;\n  if (!isRecord(context) || Object.keys(context).some((key) => !allowed.has(key))) {\n    return [{ json: failure(requestId, 'invalid_resolver_context') }];\n  }\n  if (!(context.request_id === null || typeof context.request_id === 'string') ||\n      typeof context.analysis_id !== 'string' || !context.analysis_id.trim() ||\n      typeof context.content !== 'string' || !context.content.trim() ||\n      context.content.length > 20000) {\n    return [{ json: failure(requestId, 'invalid_resolver_context') }];\n  }\n  return [{ json: {\n    ok: true,\n    resolver_input_valid: true,\n    context: JSON.parse(JSON.stringify(context))\n  } }];\n} catch {\n  return [{ json: failure(null, 'resolver_input_validation_failure') }];\n}"
+      },
+      "id": "6d000000-0000-4000-8000-000000000002",
+      "name": "Validate Resolver Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d000000-0000-4000-8000-000000000003",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6d000000-0000-4000-8000-000000000004",
+      "name": "Resolver Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const dns = require('dns').promises;\nconst net = require('net');\nconst http = require('http');\nconst https = require('https');\nconst URLClass = require('url').URL;\n\nconst MAX_DETECTED_URLS = 10;\nconst MAX_RESOLVED_URLS = 5;\nconst MAX_REDIRECTS = 3;\nconst REQUEST_TIMEOUT_MS = 4000;\nconst USER_AGENT = 'Anti-Scammer-URL-Resolver/1.0';\nconst SHORTENERS = new Set([\n  'bit.ly',\n  'tinyurl.com',\n  't.co',\n  'cutt.ly',\n  'is.gd',\n  'buff.ly',\n  'rebrand.ly',\n  'short.example'\n]);\nconst REDIRECT_STATUSES = new Set([300, 301, 302, 303, 307, 308]);\nconst diagnosticFailures = [];\nconst SAFE_STAGE_MESSAGES = {\n  url_parse: 'URL parsing failed.',\n  dns_lookup: 'DNS lookup failed.',\n  ip_validation: 'Destination address was blocked.',\n  request_setup: 'Outbound request setup failed.',\n  tcp_connect: 'TCP connection failed.',\n  tls_handshake: 'TLS handshake failed.',\n  http_request: 'HTTP request failed.',\n  redirect_processing: 'Redirect response was invalid.',\n  redirect_dns_validation: 'Redirect destination validation failed.'\n};\nfunction resolverError(status, stage, cause) {\n  const error = new Error(SAFE_STAGE_MESSAGES[stage] || 'URL resolution failed.');\n  error.resolution_status = status;\n  error.safe_stage = stage;\n  error.safe_code = cause && typeof cause.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(cause.code) ? cause.code : null;\n  error.safe_name = cause && typeof cause.name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(cause.name) ? cause.name : 'Error';\n  return error;\n}\nfunction recordFailure(error, fallbackStage) {\n  if (diagnosticFailures.length >= 20) return;\n  const stage = error && SAFE_STAGE_MESSAGES[error.safe_stage] ? error.safe_stage : fallbackStage;\n  diagnosticFailures.push({\n    stage: SAFE_STAGE_MESSAGES[stage] ? stage : 'http_request',\n    code: error && typeof error.safe_code === 'string' ? error.safe_code : null,\n    name: error && typeof error.safe_name === 'string' ? error.safe_name : 'Error',\n    message: SAFE_STAGE_MESSAGES[stage] || 'URL resolution failed.'\n  });\n}\n\nfunction safeResult(originalDomain, isShortUrl, status, extra) {\n  return {\n    original_domain: originalDomain || null,\n    final_domain: extra && extra.final_domain ? extra.final_domain : null,\n    is_short_url: isShortUrl === true,\n    resolved: Boolean(extra && extra.resolved),\n    redirect_count: extra && Number.isInteger(extra.redirect_count) ? extra.redirect_count : 0,\n    resolution_status: status\n  };\n}\n\nfunction trimUrlPunctuation(value) {\n  let output = String(value || '');\n  while (/[.,;!?，。！？、\"'”’]$/.test(output)) output = output.slice(0, -1);\n  const pairs = [['(', ')'], ['[', ']'], ['{', '}']];\n  for (const pair of pairs) {\n    const openCount = output.split(pair[0]).length - 1;\n    let closeCount = output.split(pair[1]).length - 1;\n    while (output.endsWith(pair[1]) && closeCount > openCount) {\n      output = output.slice(0, -1);\n      closeCount -= 1;\n    }\n  }\n  return output;\n}\n\nfunction parseUrl(value) {\n  const candidate = trimUrlPunctuation(value);\n  let parsed;\n  try {\n    parsed = new URLClass(candidate);\n  } catch {\n    return { ok: false, status: 'unsupported' };\n  }\n  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {\n    return { ok: false, status: 'unsupported' };\n  }\n  if (parsed.username || parsed.password) {\n    return { ok: false, status: 'blocked_destination' };\n  }\n  const hostname = String(parsed.hostname || '').toLowerCase().replace(/\\.$/, '');\n  if (!hostname) return { ok: false, status: 'blocked_destination' };\n  parsed.hostname = hostname;\n  parsed.hash = '';\n  if ((parsed.protocol === 'http:' && parsed.port === '80') || (parsed.protocol === 'https:' && parsed.port === '443')) {\n    parsed.port = '';\n  }\n  return { ok: true, parsed, hostname, normalized_url: parsed.toString() };\n}\n\nfunction ipv4Number(address) {\n  const parts = String(address).split('.');\n  if (parts.length !== 4 || parts.some((part) => !/^(?:0|[1-9]\\d{0,2})$/.test(part) || Number(part) > 255)) return null;\n  return parts.reduce((value, part) => ((value * 256) + Number(part)) >>> 0, 0);\n}\n\nfunction inIpv4Range(value, base, prefix) {\n  const shift = 32 - prefix;\n  return shift === 32 ? true : (value >>> shift) === (base >>> shift);\n}\n\nfunction isUnsafeIpv4(address) {\n  const value = ipv4Number(address);\n  if (value === null) return true;\n  const ranges = [\n    ['0.0.0.0', 8],\n    ['10.0.0.0', 8],\n    ['100.64.0.0', 10],\n    ['127.0.0.0', 8],\n    ['169.254.0.0', 16],\n    ['172.16.0.0', 12],\n    ['192.0.0.0', 24],\n    ['192.0.2.0', 24],\n    ['192.168.0.0', 16],\n    ['198.18.0.0', 15],\n    ['198.51.100.0', 24],\n    ['203.0.113.0', 24],\n    ['224.0.0.0', 4],\n    ['240.0.0.0', 4]\n  ];\n  return ranges.some((range) => inIpv4Range(value, ipv4Number(range[0]), range[1]));\n}\n\nfunction expandIpv6(address) {\n  let source = String(address).toLowerCase().split('%')[0];\n  if (source.includes('.')) {\n    const lastColon = source.lastIndexOf(':');\n    const ipv4 = ipv4Number(source.slice(lastColon + 1));\n    if (ipv4 === null) return null;\n    source = source.slice(0, lastColon) + ':' + ((ipv4 >>> 16) & 0xffff).toString(16) + ':' + (ipv4 & 0xffff).toString(16);\n  }\n  const halves = source.split('::');\n  if (halves.length > 2) return null;\n  const left = halves[0] ? halves[0].split(':') : [];\n  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];\n  const missing = 8 - left.length - right.length;\n  if ((halves.length === 1 && missing !== 0) || missing < 0) return null;\n  const groups = halves.length === 2 ? left.concat(Array(missing).fill('0'), right) : left;\n  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;\n  const bytes = [];\n  for (const group of groups) {\n    const value = parseInt(group, 16);\n    bytes.push(value >>> 8, value & 255);\n  }\n  return bytes;\n}\n\nfunction isUnsafeIpv6(address) {\n  const bytes = expandIpv6(address);\n  if (!bytes) return true;\n  const allZero = bytes.every((value) => value === 0);\n  const loopback = bytes.slice(0, 15).every((value) => value === 0) && bytes[15] === 1;\n  if (allZero || loopback) return true;\n  if ((bytes[0] & 0xfe) === 0xfc) return true;\n  if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true;\n  if (bytes[0] === 0xff) return true;\n  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) return true;\n  const mapped = bytes.slice(0, 10).every((value) => value === 0) && bytes[10] === 0xff && bytes[11] === 0xff;\n  if (mapped) return isUnsafeIpv4(bytes.slice(12).join('.'));\n  return false;\n}\n\nfunction isUnsafeAddress(address) {\n  const family = net.isIP(address);\n  if (family === 4) return isUnsafeIpv4(address);\n  if (family === 6) return isUnsafeIpv6(address);\n  return true;\n}\n\nfunction isBlockedHostname(hostname) {\n  const host = String(hostname || '').toLowerCase().replace(/\\.$/, '');\n  if (!host || host === 'localhost' || host.startsWith('localhost.') || host.endsWith('.localhost') || host.endsWith('.local')) return true;\n  if (host.endsWith('.internal') || host.endsWith('.lan') || host.endsWith('.home') || host.endsWith('.corp')) return true;\n  if (!net.isIP(host) && !host.includes('.')) return true;\n  if (/^(?:0x[0-9a-f]+|\\d+)$/i.test(host)) return true;\n  return false;\n}\n\nasync function validateTarget(parsed) {\n  const hostname = parsed.hostname.toLowerCase().replace(/\\.$/, '');\n  if (isBlockedHostname(hostname)) {\n    throw resolverError('blocked_destination', 'ip_validation', null);\n  }\n  const literalFamily = net.isIP(hostname);\n  let addresses;\n  if (literalFamily) {\n    addresses = [{ address: hostname, family: literalFamily }];\n  } else {\n    try {\n      addresses = await dns.lookup(hostname, { all: true, verbatim: true });\n    } catch (cause) {\n      throw resolverError('dns_failure', 'dns_lookup', cause);\n    }\n  }\n  if (!Array.isArray(addresses) || addresses.length === 0) {\n    throw resolverError('dns_failure', 'dns_lookup', null);\n  }\n  const normalized = addresses.map((entry) => ({\n    address: String(entry.address),\n    family: Number(entry.family)\n  }));\n  if (normalized.some((entry) => isUnsafeAddress(entry.address))) {\n    throw resolverError('blocked_destination', 'ip_validation', null);\n  }\n  normalized.sort((left, right) => left.family - right.family || left.address.localeCompare(right.address, 'en'));\n  return normalized[0];\n}\n\nfunction requestOnce(parsed, method, pinnedAddress) {\n  return new Promise((resolve, reject) => {\n    let requestStage = 'request_setup';\n    const transport = parsed.protocol === 'https:' ? https : http;\n    const headers = {\n      'User-Agent': USER_AGENT,\n      Accept: '*/*',\n      Connection: 'close'\n    };\n    if (method === 'GET') headers.Range = 'bytes=0-0';\n    const options = {\n      protocol: parsed.protocol,\n      hostname: parsed.hostname,\n      port: parsed.port || undefined,\n      path: parsed.pathname + parsed.search,\n      method,\n      headers,\n      agent: false,\n      maxHeaderSize: 16384,\n      family: pinnedAddress.family,\n      autoSelectFamily: false,\n      lookup: (_hostname, lookupOptions, callback) => {\n        const selected = { address: pinnedAddress.address, family: pinnedAddress.family };\n        if (lookupOptions && lookupOptions.all === true) return callback(null, [selected]);\n        return callback(null, selected.address, selected.family);\n      }\n    };\n    if (parsed.protocol === 'https:') {\n      options.servername = parsed.hostname;\n      options.rejectUnauthorized = true;\n    }\n    let request;\n    try {\n      request = transport.request(options, (response) => {\n        requestStage = 'http_request';\n        const statusCode = Number(response.statusCode) || 0;\n      const location = typeof response.headers.location === 'string' ? response.headers.location : null;\n      response.destroy();\n        resolve({ status_code: statusCode, location });\n      });\n    } catch (cause) {\n      reject(resolverError('network_error', 'request_setup', cause));\n      return;\n    }\n    request.on('socket', (socket) => {\n      requestStage = 'tcp_connect';\n      socket.once('connect', () => { requestStage = parsed.protocol === 'https:' ? 'tls_handshake' : 'http_request'; });\n      if (parsed.protocol === 'https:') socket.once('secureConnect', () => { requestStage = 'http_request'; });\n    });\n    request.setTimeout(REQUEST_TIMEOUT_MS, () => {\n      request.destroy(resolverError('timeout', requestStage, { code: 'ETIMEDOUT', name: 'Error' }));\n    });\n    request.on('error', (cause) => {\n      if (cause && cause.resolution_status) return reject(cause);\n      const status = cause && (cause.code === 'ETIMEDOUT' || cause.code === 'ECONNABORTED') ? 'timeout' : 'network_error';\n      reject(resolverError(status, requestStage, cause));\n    });\n    request.end();\n  });\n}\n\nasync function sendMetadataRequest(parsed, pinnedAddress) {\n  const head = await requestOnce(parsed, 'HEAD', pinnedAddress);\n  if (head.status_code === 405 || head.status_code === 501) {\n    return requestOnce(parsed, 'GET', pinnedAddress);\n  }\n  return head;\n}\n\nasync function resolveShortUrl(original) {\n  let current = original.parsed;\n  let redirectCount = 0;\n  for (;;) {\n    const pinnedAddress = await validateTarget(current);\n    const response = await sendMetadataRequest(current, pinnedAddress);\n    if (!REDIRECT_STATUSES.has(response.status_code)) {\n      return safeResult(original.hostname, true, 'resolved', {\n        final_domain: current.hostname.toLowerCase().replace(/\\.$/, ''),\n        resolved: true,\n        redirect_count: redirectCount\n      });\n    }\n    if (redirectCount >= MAX_REDIRECTS) {\n      return safeResult(original.hostname, true, 'too_many_redirects', { redirect_count: redirectCount });\n    }\n    if (!response.location) {\n      recordFailure(resolverError('invalid_redirect', 'redirect_processing', null), 'redirect_processing');\n      return safeResult(original.hostname, true, 'invalid_redirect', { redirect_count: redirectCount });\n    }\n    let destination;\n    try {\n      destination = new URLClass(response.location, current);\n    } catch (cause) {\n      recordFailure(resolverError('invalid_redirect', 'redirect_processing', cause), 'redirect_processing');\n      return safeResult(original.hostname, true, 'invalid_redirect', { redirect_count: redirectCount });\n    }\n    const parsedDestination = parseUrl(destination.toString());\n    if (!parsedDestination.ok) {\n      const status = parsedDestination.status === 'blocked_destination' ? 'blocked_destination' : 'invalid_redirect';\n      recordFailure(resolverError(status, 'redirect_processing', null), 'redirect_processing');\n      return safeResult(original.hostname, true, status, { redirect_count: redirectCount });\n    }\n    try {\n      await validateTarget(parsedDestination.parsed);\n    } catch (error) {\n      error.safe_stage = 'redirect_dns_validation';\n      recordFailure(error, 'redirect_dns_validation');\n      return safeResult(original.hostname, true, error.resolution_status || 'blocked_destination', { redirect_count: redirectCount });\n    }\n    current = parsedDestination.parsed;\n    redirectCount += 1;\n  }\n}\n\nfunction extractCandidates(content) {\n  const pattern = /\\b[a-z][a-z0-9+.-]*:\\/\\/[^\\s<>\"']+/gi;\n  const seen = new Set();\n  const output = [];\n  for (const match of content.matchAll(pattern)) {\n    if (output.length >= MAX_DETECTED_URLS) break;\n    const parsed = parseUrl(match[0]);\n    const key = parsed.ok ? parsed.normalized_url : trimUrlPunctuation(match[0]).toLowerCase();\n    if (!key || seen.has(key)) continue;\n    seen.add(key);\n    output.push(parsed);\n  }\n  return output;\n}\n\ntry {\n  const data = JSON.parse(JSON.stringify($input.first().json));\n  if (data.ok !== true || !data.context || typeof data.context.content !== 'string') throw new Error('validated resolver input unavailable');\n  const candidates = extractCandidates(data.context.content);\n  const results = [];\n  let attempted = 0;\n  let resolved = 0;\n  for (const candidate of candidates) {\n    if (!candidate.ok) {\n      recordFailure(resolverError(candidate.status === 'blocked_destination' ? 'blocked_destination' : 'unsupported', 'url_parse', null), 'url_parse');\n      results.push(safeResult(null, false, candidate.status || 'unsupported'));\n      continue;\n    }\n    const isShortUrl = SHORTENERS.has(candidate.hostname);\n    const literalFamily = net.isIP(candidate.hostname);\n    if (isBlockedHostname(candidate.hostname) || (literalFamily && isUnsafeAddress(candidate.hostname))) {\n      recordFailure(resolverError('blocked_destination', 'ip_validation', null), 'ip_validation');\n      results.push(safeResult(candidate.hostname, isShortUrl, 'blocked_destination'));\n      continue;\n    }\n    if (!isShortUrl || attempted >= MAX_RESOLVED_URLS) {\n      results.push(safeResult(candidate.hostname, isShortUrl, 'not_required'));\n      continue;\n    }\n    attempted += 1;\n    try {\n      const result = await resolveShortUrl(candidate);\n      if (result.resolved) resolved += 1;\n      results.push(result);\n    } catch (error) {\n      recordFailure(error, 'http_request');\n      results.push(safeResult(candidate.hostname, true, error && error.resolution_status ? error.resolution_status : 'network_error'));\n    }\n  }\n  return [{ json: {\n    ok: true,\n    context: data.context,\n    url_intelligence: {\n      urls_detected: candidates.length,\n      urls_attempted: attempted,\n      urls_resolved: resolved,\n      results\n    },\n    internal_diagnostics: {\n      url_resolver: {\n        automatic_redirects: false,\n        dns_validation_per_hop: true,\n        request_timeout_ms: REQUEST_TIMEOUT_MS,\n        max_redirects: MAX_REDIRECTS,\n        failures: diagnosticFailures\n      }\n    }\n  } }];\n} catch {\n  return [{ json: {\n    ok: false,\n    status_code: 500,\n    internal_diagnostics: {\n      url_resolver: {\n        failure_stage: 'url_resolution',\n        error_category: 'resolver_execution_failure'\n      }\n    }\n  } }];\n}"
+      },
+      "id": "6d000000-0000-4000-8000-000000000005",
+      "name": "Resolve URLs Safely",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -80
+      ],
+      "notesInFlow": true,
+      "notes": "Uses Node core DNS/net/http/https/url modules. Redirects are never automatic: every Location target is parsed, DNS-validated, checked against blocked IP ranges, and pinned before the next request."
+    },
+    {
+      "parameters": {
+        "jsCode": "const ALLOWED_STATUSES = new Set([\n  'resolved',\n  'not_required',\n  'timeout',\n  'dns_failure',\n  'blocked_destination',\n  'invalid_redirect',\n  'too_many_redirects',\n  'network_error',\n  'unsupported'\n]);\nfunction isRecord(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\nfunction unavailable(raw, category) {\n  const context = isRecord(raw) && isRecord(raw.context) ? raw.context : null;\n  return {\n    ok: false,\n    status_code: 500,\n    context,\n    url_intelligence: {\n      urls_detected: 0,\n      urls_attempted: 0,\n      urls_resolved: 0,\n      results: []\n    },\n    internal_diagnostics: {\n      url_resolver: {\n        available: false,\n        failure_stage: 'result_normalization',\n        error_category: category\n      }\n    }\n  };\n}\ntry {\n  const raw = JSON.parse(JSON.stringify($input.first().json));\n  if (raw.ok !== true || !isRecord(raw.context) || !isRecord(raw.url_intelligence)) {\n    return [{ json: unavailable(raw, 'resolver_unavailable') }];\n  }\n  const intelligence = raw.url_intelligence;\n  if (!Number.isInteger(intelligence.urls_detected) || intelligence.urls_detected < 0 || intelligence.urls_detected > 10 ||\n      !Number.isInteger(intelligence.urls_attempted) || intelligence.urls_attempted < 0 || intelligence.urls_attempted > 5 ||\n      !Number.isInteger(intelligence.urls_resolved) || intelligence.urls_resolved < 0 || intelligence.urls_resolved > intelligence.urls_attempted ||\n      !Array.isArray(intelligence.results) || intelligence.results.length > 10) {\n    return [{ json: unavailable(raw, 'invalid_resolver_counts') }];\n  }\n  const domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/;\n  function isNormalizedHost(value, allowIpLiteral) {\n    if (typeof value !== 'string' || !value || value !== value.toLowerCase()) return false;\n    if (domainPattern.test(value)) return true;\n    if (!allowIpLiteral) return false;\n    if (/^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(value)) return value.split('.').every((part) => Number(part) >= 0 && Number(part) <= 255);\n    return /^\\[[0-9a-f:.]+\\]$/.test(value);\n  }\n  const results = [];\n  for (const result of intelligence.results) {\n    if (!isRecord(result) || Object.keys(result).some((key) => !new Set([\n      'original_domain', 'final_domain', 'is_short_url', 'resolved', 'redirect_count', 'resolution_status'\n    ]).has(key))) return [{ json: unavailable(raw, 'unexpected_resolver_field') }];\n    const blockedIpResult = result.resolved === false && result.resolution_status === 'blocked_destination';\n    if (!(result.original_domain === null || isNormalizedHost(result.original_domain, blockedIpResult)) ||\n        !(result.final_domain === null || isNormalizedHost(result.final_domain, false)) ||\n        typeof result.is_short_url !== 'boolean' || typeof result.resolved !== 'boolean' ||\n        !Number.isInteger(result.redirect_count) || result.redirect_count < 0 || result.redirect_count > 3 ||\n        !ALLOWED_STATUSES.has(result.resolution_status)) {\n      return [{ json: unavailable(raw, 'invalid_resolver_result') }];\n    }\n    if (result.resolved && (!result.final_domain || result.resolution_status !== 'resolved')) {\n      return [{ json: unavailable(raw, 'inconsistent_resolver_result') }];\n    }\n    results.push(result);\n  }\n  const allowedStages = new Set(['url_parse','dns_lookup','ip_validation','request_setup','tcp_connect','tls_handshake','http_request','redirect_processing','redirect_dns_validation']);\n  const sourceDiagnostics = isRecord(raw.internal_diagnostics) && isRecord(raw.internal_diagnostics.url_resolver) ? raw.internal_diagnostics.url_resolver : {};\n  const failures = [];\n  if (Array.isArray(sourceDiagnostics.failures)) {\n    for (const failure of sourceDiagnostics.failures.slice(0, 20)) {\n      const keys = isRecord(failure) ? Object.keys(failure) : [];\n      if (keys.length !== 4 || !keys.includes('stage') || !keys.includes('code') || !keys.includes('name') || !keys.includes('message')) continue;\n      if (!allowedStages.has(failure.stage) || !(failure.code === null || (typeof failure.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(failure.code))) || typeof failure.name !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(failure.name) || typeof failure.message !== 'string' || !failure.message || failure.message.length > 120) continue;\n      failures.push({ stage: failure.stage, code: failure.code, name: failure.name, message: failure.message });\n    }\n  }\n  return [{ json: {\n    ok: true,\n    context: raw.context,\n    url_intelligence: {\n      urls_detected: intelligence.urls_detected,\n      urls_attempted: intelligence.urls_attempted,\n      urls_resolved: intelligence.urls_resolved,\n      results\n    },\n    internal_diagnostics: {\n      url_resolver: {\n        available: true,\n        urls_detected: intelligence.urls_detected,\n        urls_attempted: intelligence.urls_attempted,\n        urls_resolved: intelligence.urls_resolved,\n        automatic_redirects: false,\n        dns_validation_per_hop: true,\n        request_timeout_ms: 4000,\n        max_redirects: 3,\n        failures\n      }\n    }\n  } }];\n} catch {\n  return [{ json: unavailable({}, 'resolver_result_validation_failure') }];\n}"
+      },
+      "id": "6d000000-0000-4000-8000-000000000006",
+      "name": "Normalize URL Intelligence Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Architecture Phase 6D\n\nOptional URL-resolution enrichment only.\n\n- resolves only the fixed shortener allowlist\n- maximum 10 detected URLs, 5 attempted resolutions, 3 redirects\n- 4 second timeout per outbound request\n- no automatic redirect following\n- DNS and all returned IPs are validated before every hop\n- the selected validated IP is pinned for the outbound connection\n- no page crawling, cookies, credentials, response bodies, or database writes\n\nSelf-hosted n8n must allow these Code-node built-ins: `dns,net,http,https,url`.",
+        "height": 360,
+        "width": 440
+      },
+      "id": "6d000000-0000-4000-8000-000000000007",
+      "name": "Phase 6D Security Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        -420
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Resolver Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Resolver Input": {
+      "main": [
+        [
+          {
+            "node": "Resolver Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Resolve URLs Safely",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize URL Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve URLs Safely": {
+      "main": [
+        [
+          {
+            "node": "Normalize URL Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6d000000-0000-4000-8000-000000000099",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

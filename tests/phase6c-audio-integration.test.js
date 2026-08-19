@@ -210,7 +210,7 @@ test('Main has one public response, no temporary audio terminal, and audio joins
   assert.equal(execute.type, 'n8n-nodes-base.executeWorkflow');
   assert.equal(execute.parameters.workflowId.cachedResultName, 'Speech-to-Text Provider V1');
   assert.equal(execute.parameters.options.waitForSubWorkflow, true);
-  assert.deepEqual(edges('Normalize Audio Transcript'), ['Build Intelligence Lookup Input']);
+  assert.deepEqual(edges('Normalize Audio Transcript'), ['Build URL Resolver Input']);
   assert.deepEqual(edges('STT Result Valid?', 1), ['Finalize Response']);
 });
 

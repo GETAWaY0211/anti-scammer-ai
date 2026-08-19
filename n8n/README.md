@@ -195,7 +195,7 @@ Runtime path:
 text context ───────────────────────────────┐
 image -> extraction -> normalized text ────┤
                                             v
-Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1 -> Validate LLM Output
+URL Resolver Intelligence V1 -> Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1 -> Validate LLM Output
   -> Merge Intelligence Indicators -> Attach Semantic Pattern Intelligence
   -> Evaluate Semantic Corroboration -> Score Risk 1.1.0
   -> Build Public Response -> Finalize Response -> Respond
@@ -207,11 +207,12 @@ Import and configure in this order:
 2. Provider Mock V1.
 3. Image Preprocessor V1 — select the Gemini credential.
 4. Model Router V1 — select both provider workflows.
-5. Entity Intelligence Lookup V1 — select the Postgres credential on **PostgreSQL Lookup**.
-6. Semantic Pattern Lookup V1 — select its Gemini HTTP Header Auth and Postgres credentials.
-7. Speech-to-Text Provider V1 — select the Gemini HTTP Header Auth credential.
-8. Text Analysis Main V2 — select **Entity Intelligence Lookup V1**, **Semantic Pattern Lookup V1**, **Model Router V1**, **Image Preprocessor V1**, and **Speech-to-Text Provider V1** in their Execute Workflow nodes.
-9. Save and activate/publish dependencies before Text Analysis Main V2.
+5. URL Resolver Intelligence V1 — no credential; allow the required Node built-ins as described in Phase 6D below.
+6. Entity Intelligence Lookup V1 — select the Postgres credential on **PostgreSQL Lookup**.
+7. Semantic Pattern Lookup V1 — select its Gemini HTTP Header Auth and Postgres credentials.
+8. Speech-to-Text Provider V1 — select the Gemini HTTP Header Auth credential.
+9. Text Analysis Main V2 — select **URL Resolver Intelligence V1**, **Entity Intelligence Lookup V1**, **Semantic Pattern Lookup V1**, **Model Router V1**, **Image Preprocessor V1**, and **Speech-to-Text Provider V1** in their Execute Workflow nodes.
+10. Save and activate/publish dependencies before Text Analysis Main V2.
 
 The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Only one public workflow using `api/v1/analyze` may be active.
 
@@ -241,7 +242,7 @@ Webhook -> Validate Request -> Text Input?
   audio -> Prepare Audio Input -> Speech-to-Text Provider V1
         -> Validate STT Result -> Normalize Audio Transcript ---┤
                                                                v
-Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1
+URL Resolver Intelligence V1 -> Entity Intelligence Lookup V1 -> Semantic Pattern Lookup V1 -> Model Router V1
 
 Model Router V1 -> Validate Provider Adapter Result -> Validate LLM Output
                 -> Merge Intelligence Indicators -> Attach Semantic Pattern Intelligence
@@ -305,18 +306,52 @@ Import and configure the workflows in this order:
 5. Import `n8n/workflows/image-preprocessor-v1.json` and select the Gemini HTTP Header Auth credential on **Call Gemini Image Extraction**.
 6. In **Execute Provider Gemini V1**, select the imported **Provider Gemini V1** workflow.
 7. In **Execute Provider Mock V1**, select the imported **Provider Mock V1** workflow.
-8. Import `n8n/workflows/entity-intelligence-lookup-v1.json` and select its Postgres credential.
-9. Import `n8n/workflows/semantic-pattern-lookup-v1.json`; select its Gemini HTTP Header Auth credential and Postgres credential.
-10. Import `n8n/workflows/speech-to-text-provider-v1.json` and select its Gemini HTTP Header Auth credential on **Call Gemini Speech-to-Text**.
-11. Import or update `n8n/workflows/text-analysis-main-v2.json`.
-12. In **Execute Entity Intelligence Lookup V1**, select the imported entity lookup workflow.
-13. In **Execute Semantic Pattern Lookup V1**, select the imported semantic lookup workflow.
-14. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
-15. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
-16. In **Execute Speech-to-Text Provider V1**, select the imported **Speech-to-Text Provider V1** workflow.
-17. Save and activate or publish every workflow in dependency order.
+8. Import `n8n/workflows/url-resolver-intelligence-v1.json`.
+9. Import `n8n/workflows/entity-intelligence-lookup-v1.json` and select its Postgres credential.
+10. Import `n8n/workflows/semantic-pattern-lookup-v1.json`; select its Gemini HTTP Header Auth credential and Postgres credential.
+11. Import `n8n/workflows/speech-to-text-provider-v1.json` and select its Gemini HTTP Header Auth credential on **Call Gemini Speech-to-Text**.
+12. Import or update `n8n/workflows/text-analysis-main-v2.json`.
+13. In **Execute URL Resolver Intelligence V1**, select the imported resolver workflow.
+14. In **Execute Entity Intelligence Lookup V1**, select the imported entity lookup workflow.
+15. In **Execute Semantic Pattern Lookup V1**, select the imported semantic lookup workflow.
+16. In **Execute Model Router V1**, select the imported **Model Router V1** workflow.
+17. In **Execute Image Preprocessor V1**, select the imported **Image Preprocessor V1** workflow.
+18. In **Execute Speech-to-Text Provider V1**, select the imported **Speech-to-Text Provider V1** workflow.
+19. Save and activate or publish every workflow in dependency order.
 
-The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Speech-to-Text Provider V1, Model Router V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, then Text Analysis Main V2.
+The exported Execute Workflow nodes intentionally contain no instance-specific workflow IDs. Recommended activation order is Provider Gemini V1, Provider Mock V1, Image Preprocessor V1, Speech-to-Text Provider V1, Model Router V1, URL Resolver Intelligence V1, Entity Intelligence Lookup V1, Semantic Pattern Lookup V1, then Text Analysis Main V2.
+
+## Phase 6D — URL Resolver Intelligence V1
+
+`n8n/workflows/url-resolver-intelligence-v1.json` is an optional enrichment sub-workflow inserted after text/image/audio has become canonical text and before **Entity Intelligence Lookup V1**. It extracts explicit HTTP/HTTPS URLs, resolves only a fixed shortener list (`bit.ly`, `tinyurl.com`, `t.co`, `cutt.ly`, `is.gd`, `buff.ly`, `rebrand.ly`; `short.example` is reserved for controlled development tests), and forwards only successfully resolved final domains as trusted internal lookup candidates. The original domain is still extracted from canonical text, so Entity Intelligence checks both values. The resolver never creates indicators or risk; only an authoritative database match may create the existing `KNOWN_SCAM_DOMAIN` indicator.
+
+`URL_SHORTENER` and `KNOWN_SCAM_DOMAIN` remain separate. A shortener indicates only that a shortened URL was observed by validated model analysis. A resolved destination becomes `KNOWN_SCAM_DOMAIN` only when that final domain exactly matches an active curated database record. URL resolution failure is fail-open enrichment: timeout, DNS failure, blocked destination, invalid redirect, excessive redirects, or network failure is recorded internally and analysis continues with the original domain. Entity Intelligence database failure remains fail-closed with `503 INTELLIGENCE_LOOKUP_UNAVAILABLE`.
+
+Security policy is fixed server-side:
+
+- maximum 10 unique detected URLs, 5 attempted resolutions, and 3 manual redirects per URL
+- 4,000 ms timeout per outbound HEAD/GET request; no retry
+- HEAD first; GET fallback only for `405`/`501`, with `Range: bytes=0-0`; response bodies are destroyed and never parsed
+- automatic redirect following is not used; the workflow contains no HTTP Request node
+- every original and redirect hostname is parsed, checked for credentials/internal names, resolved with DNS, and all returned IPs are validated before a request
+- the selected validated IP is pinned through the Node HTTP(S) `lookup` callback while TLS SNI/hostname verification continues to use the public hostname
+- IPv4 blocks include `0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, documentation ranges, multicast, and reserved space
+- IPv6 blocks include unspecified/loopback, `fc00::/7`, `fe80::/10`, multicast, documentation space, and unsafe IPv4-mapped IPv6 addresses
+- no cookies, authorization, client headers, proxy choice, custom DNS, custom timeout, HTML crawling, JavaScript execution, or page-link discovery
+
+The resolver Code node uses only Node built-ins `dns`, `net`, `http`, `https`, and `url`. The local Compose file allowlists exactly these modules with `NODE_FUNCTION_ALLOW_BUILTIN=dns,net,http,https,url`; recreate/restart the n8n container after changing this setting. If n8n uses external task runners, configure this allowlist in the JavaScript runner's `/etc/n8n-task-runners.json` `env-overrides` instead of relying on the main container environment. Do not use `*`.
+
+Runtime URLs, query strings, redirect chains, DNS addresses, headers, cookies, and response bodies are not written to PostgreSQL and are not exposed in `public_response`. Full URLs exist only transiently inside the resolver Code node; n8n execution history may still retain canonical input text, so production retention and access restrictions remain necessary.
+
+Manual setup after import:
+
+1. Restart/recreate self-hosted n8n so the built-in module allowlist is active.
+2. Import and save/publish **URL Resolver Intelligence V1**.
+3. In Main, select it in **Execute URL Resolver Intelligence V1**.
+4. Re-import/update **Entity Intelligence Lookup V1** so it accepts the allowlisted `trusted_domain_candidates` internal field.
+5. Re-import/update **Text Analysis Main V2**, reselect all Execute Workflow dependencies if n8n clears them, save, and publish.
+
+For controlled runtime validation, use a project-owned public redirect endpoint that returns one or more redirects to a project-controlled, publicly resolvable test hostname, and add that hostname to the curated development intelligence database before the test. Reserved `.example` fixtures such as `scam-demo.example` are suitable for mocked tests but do not resolve through public DNS. Confirm the resolver node reports the public test hostname and Entity Intelligence then produces `KNOWN_SCAM_DOMAIN`. Do not probe localhost, private networks, or cloud metadata endpoints manually; those cases are covered by mocked security tests. Phase 6D is not runtime-complete until controlled redirect resolution, final-domain database matching, per-hop validation, and disabled automatic redirects are confirmed in the target n8n instance.
 
 ### Phase 4 manual tests
 

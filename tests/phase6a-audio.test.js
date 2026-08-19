@@ -153,7 +153,7 @@ test('routing explicitly separates text, image, and audio while retaining one Re
   assert.deepEqual(edges('Audio Input Prepared?', 0), ['Build Speech-to-Text Input']);
   assert.deepEqual(edges('Audio Input Prepared?', 1), ['Finalize Response']);
   assert.deepEqual(edges('Build Speech-to-Text Input'), ['Execute Speech-to-Text Provider V1']);
-  assert.deepEqual(edges('Normalize Audio Transcript'), ['Build Intelligence Lookup Input']);
+  assert.deepEqual(edges('Normalize Audio Transcript'), ['Build URL Resolver Input']);
   assert.equal(main.nodes.filter((entry) => entry.type === 'n8n-nodes-base.respondToWebhook').length, 1);
 });
 

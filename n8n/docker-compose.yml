@@ -13,6 +13,7 @@ services:
       - N8N_SECURE_COOKIE=false
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_PERSONALIZATION_ENABLED=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=dns,net,http,https,url
 
     volumes:
       - n8n_data:/home/node/.n8n
